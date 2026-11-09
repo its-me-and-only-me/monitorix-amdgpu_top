@@ -2,7 +2,8 @@
 
 Monitorix-Modul, das **alle Messwerte der JSON-Ausgabe des
 [`amdgpu_top`](https://github.com/Umio-Yasuno/amdgpu_top)-Tools** (eine Zeile bei
-`amdgpu_top -J -n 1`) erfasst und in 10 Panels (Graph-Modus) bzw. einer
+`amdgpu_top -J -n 1`) erfasst und in bis zu 10 Panels (Graph-Modus, per
+`panels`-Option auswählbar) bzw. einer
 Wertetabelle + Geräteinfo-Block (Text-Modus) darstellt — inklusive GRBM-/GRBM2-
 Engine-Auslastung, `gpu_metrics`-Telemetrie und fdinfo-Nutzungsdaten, die das
 eingebaute `amdgpu`-Sysfs-Modul nicht bietet.
@@ -24,7 +25,7 @@ sudo cp config/99-amdgpu_top.conf /etc/monitorix/conf.d/99-amdgpu_top.conf
 sudo systemctl restart monitorix
 ```
 
-Das Modul registriert sich über `additional_graph_name` im Drop-in und erscheint im
+Das Modul registriert sich über das `graph_name`-Override im Drop-in und erscheint im
 WebUI-Menü. Die CGI-URL lautet
 `monitorix.cgi?mode=localhost&graph=amdgpu_top&when=day&color=white`.
 
@@ -40,7 +41,8 @@ der CGI-Lauf (User `nobody`) braucht den Aufruf nur für den optionalen Info-Blo
 | `cmd` | `amdgpu_top -J -n 1` | Aufruf im One-Shot-Modus (terminiert selbst nach ~1 s, kein `timeout`-Wrapper nötig). Absoluter Pfad möglich. |
 | `no_pc` | `n` | `y` → zusätzlich `--no-pc` anhängen (GRBM/GRBM2 entfallen dann in den Quellen und erscheinen als Lücken/0). |
 | `use_nan_for_missing_data` | `y` | `y` → fehlende Sensorwerte als NaN (Lücke im Graph); `n` → als 0. |
-| `show_current_values` | `y` | Kurzwert-Legende (Current) in den kleinen Panels 8–10. |
+| `panels` | alle 10 | Kommagetrennte Liste sichtbarer Panels (1-basiert). Ausgeblendete Panels werden **nur im WebUI weggelassen** — alle 79 Datenquellen bleiben weiter im RRD erhalten, ein Panel ist ohne Historienverlust reaktivierbar. |
+| `show_current_values` | `y` | Kurzwert-Legende (Current) in den kleinen Panels. |
 | `show_info` | `y` | Statischer Geräte-Info-Block im Textmodus (best-effort via `amdgpu_top -J --dump`). |
 | `file` | – | JSON aus Datei lesen statt Kommando (nur für Tests/Dry-Run). |
 | `<map>` | – | Anzeigename je Geräteindex, z. B. `0 = Radeon 8060S`. |
@@ -62,6 +64,21 @@ Rechts (klein, mit Kurzwert-Legende bei `show_current_values = y`):
 
 Das Memory-Panel zeichnet die Gesamtgrößen (VRAM/GTT total) als AREA-Hintergrund
 und die Nutzlasten als Linien darüber.
+
+### Ausgeblendete Panels (`panels`-Option)
+
+Im mitgelieferten Drop-in sind **Panels 8–10 deaktiviert** (`panels = 1, 2, 3, 4, 5,
+6, 7`), weil sie auf dieser gfx1151-APU dauerhaft leer bleiben (8 h Live-Daten):
+
+| Panel | Befund |
+|---|---|
+| 8 Voltage | `Sensors.{VDDGFX,VDDNB}` hart auf 0 verdrahtet; `gpu_metrics`-Spannungen `null` |
+| 9 Fan speed | `Sensors.Fan` und `gpu_metrics.fan_pwm` `null` (firmwaregesteuert) |
+| 10 Media engine | fdinfo-Media-Zähler `null`/konstant 0 (keine Media-Workload-Zähler) |
+
+Die Datenquellen werden unverändert weiter aufgezeichnet. Reaktivierung: Panelnummer
+zu `panels` hinzufügen und den zugehörigen `_amdgpu_topN`-Titel im Drop-in
+entkommentieren — die vorhandene Historie ist dann sofort sichtbar.
 
 ## Ersetzung des eingebauten `amdgpu`-Moduls
 

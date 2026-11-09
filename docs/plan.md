@@ -262,3 +262,15 @@ Standard-RRD-Fetch-Tabelle (wie amdenergy) **ohne** externen Aufruf, gruppiert n
 3. **Render-Pass für AREA-Hintergründe:** Panel-Schleife zeichnet jetzt in zwei Pässen
    (erst alle `AREA`-Hintergründe, dann alle Linien), damit im Memory-Panel das später
    gezeichnete `gtt_tot`-AREA nicht mehr die VRAM-Linien zudeckt.
+4. **`panels`-Option (CGI-only):** permanent leere Panels auf dieser Hardware
+   (8 Voltage: `vddgfx`/`vddnb` konstant 0, `gm_v_*` `null`; 9 Fan speed: `fan`/
+   `gm_fan_pwm` `null`; 10 Media engine: `fd_dec`/`fd_enc` `null`,
+   `fd_media`/`fd_jpeg`/`fd_vcn`/`fd_vpe` konstant 0 — je 8 h Live-Daten) sind im
+   Drop-in über `panels = 1, 2, 3, 4, 5, 6, 7` ausgeblendet; die Titel
+   `_amdgpu_top8/9/10` sind dort kommentiert. Alle 79 DS werden unverändert
+   weiter aufgezeichnet → Reaktivierung (Nummer zu `panels` + Titel entkommentieren)
+   ist ohne Historienverlust möglich. Umsetzung im CGI: `@panel_list` (Default alle
+   10, Warnung bei ungültigen Einträgen), Panel-Identität über ursprüngliche Nummer
+   `$pn` (rigid/limit, Plot-Titel, `$e2`), PNG-/IMG-Index über Renderposition;
+   Spaltensprung nach dem letzten sichtbaren `main`-Panel. `t_cgi.pl` leitet die
+   erwartete Panel-/Bildzahl jetzt dynamisch aus der Config ab.

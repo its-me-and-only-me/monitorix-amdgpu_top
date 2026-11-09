@@ -713,7 +713,27 @@ sub amdgpu_top_cgi {
 	);
 	my $number_of_plots = scalar(@PANELS);	# 10
 	my $main_size_plots = 3;		# panels 1-3 use graph size 'main'
-	my $main_column_plots = 3;		# panels 1-3 left, 4-10 right column
+
+	# selectable panels (1-based panel numbers), default: all
+	# disabled panels are only hidden in the CGI - ALL 79 DS keep being
+	# recorded in the RRD, so a panel can be re-enabled later without
+	# losing history (e.g. panels = 1, 2, 3, 4, 5, 6, 7, 10)
+	my @panel_list;
+	if(defined($amdgpu_top->{panels}) && $amdgpu_top->{panels} ne "") {
+		foreach my $p (split(',', $amdgpu_top->{panels})) {
+			$p =~ s/\s+//g;
+			if($p =~ /^\d+$/ && $p >= 1 && $p <= $number_of_plots) {
+				push(@panel_list, $p + 0);
+			}
+			elsif($p ne "") {
+				logger("amdgpu_top_cgi: WARNING: ignoring invalid panel number '$p' in 'panels' option.");
+			}
+		}
+	}
+	@panel_list = (1 .. $number_of_plots) unless(@panel_list);
+	my $number_of_visible_plots = scalar(@panel_list);
+	# column break after the last 'main' panel (left column)
+	my $left_column_plots = (grep { $_ <= $main_size_plots } @panel_list);
 
 	# text mode
 	#
@@ -831,7 +851,7 @@ sub amdgpu_top_cgi {
 	my $global_zoom = "--zoom=" . $zoom;
 
 	for($n = 0; $n < keys(%{$amdgpu_top->{list}}); $n++) {
-		for($n2 = 0; $n2 < $number_of_plots; $n2++) {
+		for($n2 = 0; $n2 < $number_of_visible_plots; $n2++) {
 			$str = $u . $package . $n . $n2 . "." . $tf->{when} . ".$imgfmt_lc";
 			push(@IMG, $str);
 			unlink("$IMG_DIR" . $str);
@@ -852,19 +872,20 @@ sub amdgpu_top_cgi {
 			push(@output, "    <tr>\n");
 			push(@output, "    <td>\n");
 		}
-		for($n_plot = 0; $n_plot < $number_of_plots; $n_plot++) {
-			if($title && $n_plot == $main_column_plots) {
+		for($n_plot = 0; $n_plot < $number_of_visible_plots; $n_plot++) {
+			my $pn = $panel_list[$n_plot];	# original 1-based panel number
+			if($title && $n_plot == $left_column_plots) {
 				push(@output, "    </td>\n");
 				push(@output, "    <td class='td-valign-top'>\n");
 			}
 
-			my $panel = $PANELS[$n_plot];
+			my $panel = $PANELS[$pn - 1];
 			my $fmt = $panel->{fmt};
-			my $is_main = $n_plot < $main_size_plots ? 1 : 0;
+			my $is_main = $pn <= $main_size_plots ? 1 : 0;
 			my $temp_f = ($panel->{temp} && lc($config->{temperature_scale}) eq "f") ? 1 : 0;
 			my $vlabel = $temp_f ? "Fahrenheit" : $panel->{vl};
 
-			@riglim = @{setup_riglim($rigid[$n_plot], $limit[$n_plot])};
+			@riglim = @{setup_riglim($rigid[$pn - 1], $limit[$pn - 1])};
 			undef(@tmp);
 			undef(@tmpz);
 			undef(@CDEF);
@@ -950,10 +971,10 @@ sub amdgpu_top_cgi {
 				push(@tmp, "COMMENT: \\n");
 			}
 
-			my $plot_title = $config->{graphs}->{'_amdgpu_top' . ($n_plot + 1)};
-			$plot_title = "Panel " . ($n_plot + 1) unless defined($plot_title);
+			my $plot_title = $config->{graphs}->{'_amdgpu_top' . $pn};
+			$plot_title = "Panel " . $pn unless defined($plot_title);
 
-			$pic = $rrd{$version}->("$IMG_DIR" . $IMG[$e * $number_of_plots + $n_plot],
+			$pic = $rrd{$version}->("$IMG_DIR" . $IMG[$e * $number_of_visible_plots + $n_plot],
 				"--title=$plot_title ($tf->{nwhen}$tf->{twhen})",
 				"--start=-$tf->{nwhen}$tf->{twhen}",
 				"--imgformat=$imgfmt_uc",
@@ -970,11 +991,11 @@ sub amdgpu_top_cgi {
 				@CDEF,
 				@tmp);
 			$err = RRDs::error;
-			push(@output, "ERROR: while graphing $IMG_DIR" . $IMG[$e * $number_of_plots + $n_plot] . ": $err\n") if $err;
+			push(@output, "ERROR: while graphing $IMG_DIR" . $IMG[$e * $number_of_visible_plots + $n_plot] . ": $err\n") if $err;
 
 			if(lc($config->{enable_zoom}) eq "y") {
 				($width, $height) = split('x', $config->{graph_size}->{zoom});
-				$picz = $rrd{$version}->("$IMG_DIR" . $IMGz[$e * $number_of_plots + $n_plot],
+				$picz = $rrd{$version}->("$IMG_DIR" . $IMGz[$e * $number_of_visible_plots + $n_plot],
 					"--title=$plot_title  ($tf->{nwhen}$tf->{twhen})",
 					"--start=-$tf->{nwhen}$tf->{twhen}",
 					"--imgformat=$imgfmt_uc",
@@ -992,14 +1013,14 @@ sub amdgpu_top_cgi {
 					@CDEF,
 					@tmpz);
 				$err = RRDs::error;
-				push(@output, "ERROR: while graphing $IMG_DIR" . $IMGz[$e * $number_of_plots + $n_plot] . ": $err\n") if $err;
+				push(@output, "ERROR: while graphing $IMG_DIR" . $IMGz[$e * $number_of_visible_plots + $n_plot] . ": $err\n") if $err;
 			}
 
-			$e2 = $e + $n_plot + 1;
+			$e2 = $e + $pn;
 			if($title || ($silent =~ /imagetag/ && $graph =~ /amdgpu_top$e2/)) {
 				if(lc($config->{enable_zoom}) eq "y") {
 					if(lc($config->{disable_javascript_void}) eq "y") {
-						push(@output, "      " . picz_a_element(config => $config, IMGz => $IMGz[$e * $number_of_plots + $n_plot], IMG => $IMG[$e * $number_of_plots + $n_plot]) . "\n");
+						push(@output, "      " . picz_a_element(config => $config, IMGz => $IMGz[$e * $number_of_visible_plots + $n_plot], IMG => $IMG[$e * $number_of_visible_plots + $n_plot]) . "\n");
 					}
 					else {
 						if($version eq "new") {
@@ -1010,11 +1031,11 @@ sub amdgpu_top_cgi {
 							$picz_width = $width + 115;
 							$picz_height = $height + 100;
 						}
-						push(@output, "      " . picz_js_a_element(width => $picz_width, height => $picz_height, config => $config, IMGz => $IMGz[$e * $number_of_plots + $n_plot], IMG => $IMG[$e * $number_of_plots + $n_plot]) . "\n");
+						push(@output, "      " . picz_js_a_element(width => $picz_width, height => $picz_height, config => $config, IMGz => $IMGz[$e * $number_of_visible_plots + $n_plot], IMG => $IMG[$e * $number_of_visible_plots + $n_plot]) . "\n");
 					}
 				}
 				else {
-					push(@output, "      " . img_element(config => $config, IMG => $IMG[$e * $number_of_plots + $n_plot]) . "\n");
+					push(@output, "      " . img_element(config => $config, IMG => $IMG[$e * $number_of_visible_plots + $n_plot]) . "\n");
 				}
 			}
 		}
