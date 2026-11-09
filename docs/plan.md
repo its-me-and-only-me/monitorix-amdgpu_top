@@ -132,9 +132,10 @@ additional_graph_name = amdgpu_top
 | PCIe (1) | pcie_lsp | Sensors."PCIe Link Speed" | – |
 | CPU-Freq (2) | cpu_favg, cpu_fmax | Sensors."CPU Core freq"[] cur_freq | Mittel / Maximum über Kerne |
 | VRAM (4) | vram_tot, vram_use, gtt_tot, gtt_use | VRAM.{Total VRAM,Total VRAM Usage,Total GTT,Total GTT Usage} | – |
-| gpu_metrics (20) | gm_t_gfx, gm_t_soc, gm_t_edge, gm_t_hot, gm_t_mem, gm_t_l3, gm_t_core | gpu_metrics.temperature_*  (core = Array-Mittel) | ÷100 → °C |
+| gpu_metrics (21) | gm_t_gfx, gm_t_soc, gm_t_edge, gm_t_hot, gm_t_mem, gm_t_l3, gm_t_core | gpu_metrics.temperature_*  (core = Array-Mittel, nur >0) | ÷100 → °C |
 | | gm_agfxclk, gm_afclk, gm_auclk, gm_asocclk, gm_avclk, gm_adclk | gpu_metrics.average_*_frequency | – |
 | | gm_p_sock, gm_p_cpu, gm_p_gfx, gm_p_soc | gpu_metrics.average_*_power | ÷1000 → W |
+| | gm_v_gfx, gm_v_soc, gm_v_mem | gpu_metrics.voltage_gfx/soc/mem | – |
 | | gm_fan_pwm | gpu_metrics.fan_pwm | – |
 | fdinfo (13) | fd_cpu, fd_comp, fd_dma, fd_dec, fd_enc, fd_gfx, fd_media, fd_jpeg, fd_vcn, fd_vpe, fd_vram, fd_gtt | Total fdinfo.* | – |
 | | proc_count | Anzahl fdinfo-Hash-Keys | – |
@@ -151,7 +152,7 @@ Fehlende/null-Werte: `use_nan_for_missing_data=y` → `U`(NaN), sonst `0` (Konve
 5. **Clocks (MHz)**: sclk, mclk, gm_agfxclk, gm_afclk, gm_auclk, gm_asocclk
 6. **Power (W)**: p_avg, p_input, p_gfx, gm_p_sock
 7. **Memory usage (MiB)**: vram_tot (AREA Hintergrund), vram_use, gtt_tot (AREA hell), gtt_use
-8. **Voltage (mV)**: vddgfx, vddnb
+8. **Voltage (mV)**: vddgfx, vddnb, gm_v_gfx, gm_v_soc, gm_v_mem
 9. **Fan speed (%)**: fan, gm_fan_pwm
 10. **Media engine usage (%)**: fd_dec, fd_enc, fd_media, fd_jpeg, fd_vcn, fd_vpe
 
