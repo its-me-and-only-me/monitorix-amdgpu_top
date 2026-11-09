@@ -640,6 +640,18 @@ sub amdgpu_top_cgi {
 			["fd_dma",     "fd DMA"],
 			["fd_media",   "fd Media"],
 		]},
+		{ vl => "Watt", fmt => "%6.1lf", metrics => [
+			["p_avg",      "Average"],
+			["p_input",    "Input"],
+			["p_gfx",      "GFX"],
+			["gm_p_sock",  "GM Socket"],
+		]},
+		{ vl => "MiB", fmt => "%8.0lf", metrics => [
+			["vram_tot",   "VRAM total", "AREA:#C8C8C8"],
+			["vram_use",   "VRAM used",  "LINE2"],
+			["gtt_tot",    "GTT total",  "AREA:#E6E6F6"],
+			["gtt_use",    "GTT used",   "LINE2"],
+		]},
 		{ vl => "Percent (%)", fmt => "%5.1lf%%", metrics => [
 			["g_pipe",     "Graphics Pipe"],
 			["t_pipe",     "Texture Pipe"],
@@ -679,18 +691,6 @@ sub amdgpu_top_cgi {
 			["gm_auclk",   "GM avg UCLK"],
 			["gm_asocclk", "GM avg SOCclk"],
 		]},
-		{ vl => "Watt", fmt => "%6.1lf", metrics => [
-			["p_avg",      "Average"],
-			["p_input",    "Input"],
-			["p_gfx",      "GFX"],
-			["gm_p_sock",  "GM Socket"],
-		]},
-		{ vl => "MiB", fmt => "%8.0lf", metrics => [
-			["vram_tot",   "VRAM total", "AREA:#C8C8C8"],
-			["vram_use",   "VRAM used",  "LINE2"],
-			["gtt_tot",    "GTT total",  "AREA:#E6E6F6"],
-			["gtt_use",    "GTT used",   "LINE2"],
-		]},
 		{ vl => "Millivolt (mV)", fmt => "%6.1lf", metrics => [
 			["vddgfx",     "VDDGFX"],
 			["vddnb",      "VDDNB"],
@@ -712,8 +712,8 @@ sub amdgpu_top_cgi {
 		]},
 	);
 	my $number_of_plots = scalar(@PANELS);	# 10
-	my $main_size_plots = 7;		# panels 1-7 use graph size 'main'
-	my $main_column_plots = 5;		# panels 1-5 left, 6-10 right column
+	my $main_size_plots = 3;		# panels 1-3 use graph size 'main'
+	my $main_column_plots = 3;		# panels 1-3 left, 4-10 right column
 
 	# text mode
 	#
@@ -873,11 +873,17 @@ sub amdgpu_top_cgi {
 			my $ndef = 0;
 			my $multi = scalar(@d) > 1 ? 1 : 0;
 
+			# two rendering passes: AREA backgrounds first (the Memory
+			# panel uses them as capacity backdrops), then all LINE plots,
+			# so no AREA can bury a previously drawn line
+			for my $pass (1, 2) {
 			for($n = 0; $n < scalar(@d); $n++) {
 				my $dname = amdgpu_top_dev_label($config, $d[$n]);
 
 				for($n2 = 0; $n2 < scalar(@{$panel->{metrics}}); $n2++) {
 					my ($suffix, $mlabel, $style) = @{$panel->{metrics}[$n2]};
+					my $is_area = (defined($style) && $style =~ /^AREA/) ? 1 : 0;
+					next if(($pass == 1) != $is_area);
 					my $vname = "e" . $e . "d" . $n . "_" . $suffix;
 					my $tname = "t_" . $vname;
 
@@ -920,6 +926,7 @@ sub amdgpu_top_cgi {
 						}
 					}
 				}
+			}
 			}
 			$allvalues .= ",+" x ($ndef - 1);
 			push(@CDEF, $allvalues);

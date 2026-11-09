@@ -147,7 +147,7 @@ Nicht gemappt (bewusst, in README dokumentiert): statische Info-Felder (nur Text
 
 Fehlende/null-Werte: `use_nan_for_missing_data=y` → `U`(NaN), sonst `0` (Konvention amdenergy/nvidiagpu).
 
-### 2.3 Diagramm-Panels pro Gruppe (10 Plots, `main`-Größe für 1–7, `small` für 8–10 analog nvidiagpu)
+### 2.3 Diagramm-Panels pro Gruppe (10 Plots, `main`-Größe für 1–7, `small` für 8–10 analog nvidiagpu) — ** Layout siehe „Änderungen nach v1.0“ **
 1. **GPU usage (%)**: act_gfx, act_media, act_mem, fd_gfx, fd_cpu, fd_comp, fd_dma, fd_media (LINE)
 2. **GRBM engines (%)**: 8 LINEs
 3. **GRBM2 engines (%)**: 9 LINEs
@@ -242,3 +242,23 @@ Standard-RRD-Fetch-Tabelle (wie amdenergy) **ohne** externen Aufruf, gruppiert n
 - One-Shot-Aufruf (`-n 1`) braucht ~0,6–1,1 s: Update-Dauer pro Minute unkritisch; bei >1 Gruppen bleibt es **ein** `amdgpu_top`-Aufruf (alle Geräte im einen Dokument).
 - Monitorix 3.16 `graph_title`/`graphs`-Hashes: `_amdgpu_top#`-Namen müssen exakt zu Panelanzahl passen (Indexseite).
 - Werte-Einhängung an `--dump` in Schritt 1 offline nur so gut wie die Samples; Live-Werte können sich ändern (deshalb jeder Schritt mit Live-Gegenprobe).
+
+---
+
+## 5. Änderungen nach v1.0 (Nutzerfeedback, 2026-11-09)
+
+1. **Layout:** links drei `main`-Panels — GPU usage, Power, Memory usage — rechts
+   sieben `small`-Panels (GRBM, GRBM2, Temperatures, Clocks, Voltage, Fan speed,
+   Media engine usage). Umsetzung: Reihenfolge in `@PANELS` geändert,
+   `$main_size_plots = 3`, `$main_column_plots = 3`; `<graphs>`-Namen im Drop-in auf
+   die neue Positionsreihenfolge gebracht (PNG-Indexierung folgt der Renderposition).
+2. **`amdgpu`-Ersetzung:** Drop-in setzt `graph_name` komplett (Kopie der
+   Hauptconfig-Liste, `amdgpu` → `amdgpu_top`) statt `additional_graph_name` und
+   deaktiviert `amdgpu` über `<graph_enable>`. Das Modul erscheint exakt an der alten
+   `amdgpu`-Position im Menü; `amdgpu.rrd` wird nicht mehr aktualisiert.
+   `additional_graph_name` und `graph_name`-Override dürfen **nicht beide** gesetzt
+   sein (Hash-Reihenfolge der conf.d-Merge-Session ist nicht deterministisch).
+   Hinweis für Monitorix-Upgrades: `graph_name`-Zeile gegen die Hauptconfig prüfen.
+3. **Render-Pass für AREA-Hintergründe:** Panel-Schleife zeichnet jetzt in zwei Pässen
+   (erst alle `AREA`-Hintergründe, dann alle Linien), damit im Memory-Panel das später
+   gezeichnete `gtt_tot`-AREA nicht mehr die VRAM-Linien zudeckt.

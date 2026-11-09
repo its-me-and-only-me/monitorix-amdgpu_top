@@ -53,12 +53,29 @@ Andere im Drop-in gesetzte globale Optionen (`show_gaps`, `global_zoom`,
 
 ## Panels
 
-1. GPU usage (%) · 2. GRBM engines (%) · 3. GRBM2 engines (%) · 4. Temperatures (°C) ·
-5. Clocks (MHz) · 6. Power (W) · 7. Memory usage (MiB) · 8. Voltage (mV) ·
-9. Fan speed (%) · 10. Media engine usage (%)
+Links (groß, mit Current/Average/Min/Max-Legende):
+**1. GPU usage (%) · 2. Power (W) · 3. Memory usage (MiB)**
 
-Panels 1–5 links, 6–10 rechts; Panels 1–7 in `main`-Größe mit
-Current/Average/Min/Max-Legende, 8–10 in `small`-Größe.
+Rechts (klein, mit Kurzwert-Legende bei `show_current_values = y`):
+**4. GRBM engines · 5. GRBM2 engines · 6. Temperatures (°C) · 7. Clocks (MHz) ·
+8. Voltage (mV) · 9. Fan speed (%) · 10. Media engine usage (%)**
+
+Das Memory-Panel zeichnet die Gesamtgrößen (VRAM/GTT total) als AREA-Hintergrund
+und die Nutzlasten als Linien darüber.
+
+## Ersetzung des eingebauten `amdgpu`-Moduls
+
+Das Drop-in verdrängt das eingebaute `amdgpu`-Modul komplett:
+
+- `<graph_enable> amdgpu = n` → Daemon sammelt keine `amdgpu`-Daten mehr,
+  das Modul verschwindet aus dem WebUI-Menü
+- `graph_name = …` (komplette Liste aus der Hauptconfig, mit `amdgpu` →
+  `amdgpu_top` ersetzt) → `amdgpu_top` erscheint **an genau der alten
+  `amdgpu`-Position** in Menü und „All graphs“-Seite
+
+**Upgrade-Hinweis:** Die `graph_name`-Zeile im Drop-in kopiert die Default-Liste
+der Hauptconfig. Nach einem Monitorix-Upgrade gegen `/etc/monitorix/monitorix.conf`
+abgleichen, falls sich die Standardreihenfolge geändert hat.
 
 ## RRD-Schema (79 Datenquellen pro Geräteslot, Präfix `e<Gruppe>d<Slot>_`)
 
