@@ -226,9 +226,11 @@ Standard-RRD-Fetch-Tabelle (wie amdenergy) **ohne** externen Aufruf, gruppiert n
 - Tests in `t_robust.pl` (Assertions auf den bei `debug=1` geloggten Update-String, da rrdtool Buckets lazy konsolidiert): (a/a2) `no_pc=y` Datei+live → GRBM/GRBM2 `U` ohne Crash; (b) kaputte Ausgabe bei init → ERROR-Log, `_init` bricht bewusst vor RRD-Anlage ab; (b1) Tool weg NACH init → alle DS `U`, RRD bleibt, Daemon läuft weiter; (b2) Binary fehlt; (b3) `file` fehlt; (c) Index außerhalb `devices[]` → Slot `U` + WARNING; (c2) nicht-numerischer Index → ERROR + `U`; (d) `use_nan_for_missing_data=n` → 0er statt `U`; (e) „0, 0“ → 158 DS, beide Blöcke identisch; (f) fremdes RRD → `.bak`-Rotation + 79 DS.
 - DoD: alle Fälle protokolliert in `docs/testlog.md`. ✓ ALL CHECKS PASSED
 
-### Schritt 8 — Dokumentation & Abschluss
-- `README.md`: Installation (Pfad-Ziele, `systemctl restart monitorix`), alle Config-Optionen, DS-Schema-Tabelle, bewusste Nicht-Abbildungen, Hinweis DS-Änderung ⇒ RRD-Neubau.
-- Finaler End-to-End: Service aktiv (`systemctl enable --now monitorix`), 2–3 Update-Zyklen, WebUI-Beweisscreenshot, Repo-Cleanup, Tag `v1.0`.
+### Schritt 8 — Dokumentation & Abschluss ✅ (2026-11-09)
+- `README.md` angelegt: Installation (Modul → `/usr/lib/monitorix/`, Drop-in → `/etc/monitorix/conf.d/`, Restart), alle Config-Optionen, 79er-DS-Schema-Tabelle, bewusst Nicht-Abgebildetes (Info-Felder, Strings, Core-Power-Arrays, xdna_fdinfo, Pro-PID-fdinfo), Hinweis „DS-Änderung ⇒ RRD-Neubau mit .bak-Rettung“, Testkommandos.
+- Finaler End-to-End: `systemctl enable --now monitorix` → enabled + active; zwei Update-Zyklen verifiziert (lastupdate +121 s, frische Werte im RRD); WebUI belegt (20 Panel-PNGs + HTML, docs/testlog.md). Installierte Dateien = Repo-Stand (diff leer).
+- Beobachtung: gfx1151 liefert Sensorwerte (z. B. `temperature_tctl`) zeitweise `null` — Modul schreibt korrekt NaN (Lücke im Graph), Tool-/Hardware-verhalten, kein Modulbug.
+- Repo-Cleanup (Testartefakte gitigignored), Tag `v1.0`. ✓
 
 ---
 
