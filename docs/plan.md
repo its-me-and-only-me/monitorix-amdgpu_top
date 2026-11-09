@@ -195,10 +195,11 @@ Standard-RRD-Fetch-Tabelle (wie amdenergy) **ohne** externen Aufruf, gruppiert n
 - Test-Harness `t_update.pl`: baut `%config` selbst (base_lib=`./test/`, list={0=>"0"}, use_nan=y), ruft `amdgpu_top_init`/`_update` mit Sample-Daten (Parser-Modus `--file`) auf; prüft `rrdtool info` (DS-Anzahl=79) und `rrdtool last`/`fetch`.
 - DoD: RRD entsteht, `rrdtool fetch ... AVERAGE -r 60 -s -300` zeigt reale Werte an den erwarteten DS-Positionen (Stichproben: vram_use, sclk, t_tctl, gm_p_sock ≈ 40–80).
 
-### Schritt 4 — Konfig-Drop-in und Live-Betrieb des Daemons
-- `/etc/monitorix/conf.d/99-amdgpu_top.conf` nach 2.1 anlegen (zuerst im Projektversioniert, dann kopiert).
-- Test: `timeout 75 monitorix -c /etc/monitorix/monitorix.conf -n -d amdgpu_top` → Log zeigt `amdgpu_top_init: Ok`, Update-Aufruf, RRD `/var/lib/monitorix/amdgpu_top.rrd` mit frischem `last` und Werten.
-- DoD: RRD minütlich aktualisiert; keine WARNINGS/Fehler im Log; `rrdtool fetch` live plausibel.
+### Schritt 4 — Konfig-Drop-in und Live-Betrieb des Daemons ✅ (2026-11-09)
+- `/etc/monitorix/conf.d/99-amdgpu_top.conf` nach 2.1 angelegt (zuerst im Projektversioniert, dann kopiert).
+- Test: `timeout 130 monitorix -c /etc/monitorix/monitorix.conf -n -d all` → Log zeigt `amdgpu_top_init: Ok`, minütliche Updates, RRD `/var/lib/monitorix/amdgpu_top.rrd` aktuell.
+- **Erkenntnis:** Die Debug-Key-Validierung läuft VOR dem conf.d-Merge → `-d amdgpu_top` stirbt mit „Invalid debug key“; `-d all` benutzen.
+- DoD: RRD minütlich aktualisiert; keine WARNINGS/Fehler im Log; `rrdtool fetch` live plausibel. ✓
 
 ### Schritt 5 — `_cgi` Graph-Modus (10 Panels)
 - Umsetzung nach 2.3 + amdenergy/nvidiagpu-Muster: IMG/IMGz-Arrays, `setup_riglim`, @LC-Farben, LINE/AREA/legend (`GLEG` bei show_current_values), `--vertical-label` je Panel, `main::graph_descr`, `graphv`/`graph`, Zoom, „main“-Plots 1–7 mit avg/min/max-Zusatzzeile wie nvidiagpu, Panels 8–10 `small` + version12_small.
