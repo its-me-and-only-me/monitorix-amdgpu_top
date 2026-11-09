@@ -2,7 +2,7 @@
 
 Ziel: Ein eigenes Monitorix-Modul, das **alle zeitlichen Daten aus dem JSON-Output von `amdgpu_top`** erfasst (RRD) und als Diagramme + Textanszeige darstellt.
 
-Projektverzeichnis: `/home/thadden/Entwicklung/opencode/monitorix-amdgpu_top/` (mit eigenem git-Repo für atomare Commits pro Schritt).
+Projektverzeichnis: eigenes git-Repo `monitorix-amdgpu_top/` (atomare Commits pro Schritt).
 
 Installationsziele:
 - Modul: `/usr/lib/monitorix/amdgpu_top.pm`

@@ -1,10 +1,10 @@
 #
-# Monitorix - A lightweight system monitoring tool.
+# amdgpu_top: a Monitorix module monitoring all time-series values provided
+#             by the JSON output of the 'amdgpu_top' tool (-J -n 1).
 #
-# amdgpu_top module: monitors all time-series values provided by the JSON
-#                   output of the 'amdgpu_top' tool (amdgpu_top -J -n 1).
+# Written for Monitorix - https://monitorix.org
 #
-# Copyright (C) 2005-2022 by Jordi Sanfeliu <jordi@fibranet.cat>
+# Copyright (C) 2026 by Joachim von Thadden <thadden@web.de>
 #
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
