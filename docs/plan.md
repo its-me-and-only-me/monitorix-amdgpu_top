@@ -216,10 +216,11 @@ Standard-RRD-Fetch-Tabelle (wie amdenergy) **ohne** externen Aufruf, gruppiert n
   4. `enable_parallelizing = y` (Default) forked Module; Kind-Die/Stderr verschwinden → direkter Funktionsaufruf via Harness `t_cgi.pl` als primärer Testweg.
 - Test: `./t_cgi.pl` (Graph-Tages-, Text-Tages-, Text-Wochen-Szenario) ALL CHECKS PASSED; E2E `curl 'http://localhost:8080/monitorix.cgi?mode=localhost&graph=amdgpu_top&when=day&color=white'` → 20 IMG-Referenzen (10 + 10 Zoom), keine ERRORs, PNGs in `/var/lib/monitorix/www/imgs/` visuell geprüft (Temperatures, Memory usage, Media engine usage). ✓
 
-### Schritt 6 — Visuelle Abnahme + Textmodus
-- PNGs mit Read-Tool ansehen: Kurven plausibel, Legenden lesbar, keine „nan“-Artefakte, leere Panels (Fan/Voltage bei APU) sauber gezeichnet.
-- `_cgi`-Textmodus-Abschnitt (iface_mode=text optional testen) + Info-Block (show_info) verifizieren.
-- DoD: Screenshots/Dateien plausibel; Browser `/monitorix.cgi?g=amdgpu_top` komplett; keine RRDtool-Fehlermeldungen im HTML.
+### Schritt 6 — Visuelle Abnahme + Textmodus ✅ (2026-11-09)
+- Alle 10 Panels visuell geprüft (Read-Tool auf `/var/lib/monitorix/www/imgs/amdgpu_top0{0..9}.1day.png`): Kurven plausibel (SCLK bis 2802 MHz, Power bis 108 W, GRBM/GRBM2-Aktivität korrekt), 4-Werte-Legenden (Current/Average/Min/Max) bei Panels 1–7 lesbar, kleine Panels 8–10 mit Kurzwert-Legende, fehlende APU-Sensoren (Fan, gm-Voltages, Memory-Temp) sauber als -nan ohne Artefakte.
+- Voltage-Panel zeigt VDDGFX/VDDNB = 0.0: **korrekt** — `amdgpu_top` liefert auf gfx1151 real `{"unit":"mV","value":0}` (kein Parse-/NaN-Fehler).
+- Textmodus (Tabelle + Info-Block via `--dump`) bereits in Schritt 5 verifiziert; HTML-Zweispaltenlayout im E2E-HTML bestätigt (`<td>` Panels 1–5, `<td class='td-valign-top'>` Panels 6–10, Titel colspan=2).
+- DoD erfüllt: E2E `curl 'http://localhost:8080/monitorix.cgi?mode=localhost&graph=amdgpu_top&when=day&color=white'` → 20 PNGs, 0 ERRORs, keine RRDtool-Fehler im HTML. ✓
 
 ### Schritt 7 — Robustheit & Sonderfälle
 - Tests: (a) `no_pc=y` → GRBM/GRBM2-Panels leer/NaN ohne Crash; (b) `cmd = /usr/bin/printf 'müll\n'` → Update schreibt NaN, Log-Warnung, Daemon läuft weiter; (c) Geräteindex außerhalb devices[] → NaN; (d) `use_nan_for_missing_data=n` → 0er; (e) Liste mit 2 Slots „0, 0“ → beide Spalten gefüllt (DS-Offsets korrekt!).
