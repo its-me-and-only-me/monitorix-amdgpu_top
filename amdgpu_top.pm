@@ -31,7 +31,7 @@ use JSON::PP;
 use Cwd 'abs_path';
 use File::Basename;
 use Exporter 'import';
-our @EXPORT = qw(amdgpu_top_init);	# + amdgpu_top_update (Step 3) + amdgpu_top_cgi (Step 5)
+our @EXPORT = qw(amdgpu_top_init amdgpu_top_update);	# + amdgpu_top_cgi (Step 5)
 
 my $max_number_of_gpus = 8;	# Changing this number destroys history.
 
@@ -217,30 +217,46 @@ my @DSPEC = (
 my $number_of_values_per_gpu_in_rrd = scalar(@DSPEC);	# 79
 
 # ---------------------------------------------------------------------------
-# collect_json(cmd => ..., no_pc => 0|1) -> ($data, $error)
+# collect_json(cmd => ..., no_pc => 0|1, file => path) -> ($data, $error)
 #
 # One-shot invocation of amdgpu_top; '-n 1' must be part of cmd so the
-# command terminates on its own. Returns the decoded document or an error.
+# command terminates on its own. With 'file' the JSON document is read from
+# that file instead (offline tests / dry runs).
+# Returns the decoded document or an error.
 # ---------------------------------------------------------------------------
 sub collect_json {
 	my ($myself, %o) = @_;
 
-	my $cmd = $o{cmd} || "amdgpu_top -J -n 1";
-	my @argv = (split(/\s+/, $cmd), ($o{no_pc} ? ("--no-pc") : ()));
-
-	logger("$myself: executing '" . join(" ", @argv) . "'.") if $o{debug};
-
-	my $fh;
-	unless(open($fh, "-|", @argv)) {
-		return (undef, "unable to execute '" . join(" ", @argv) . "': $!");
-	}
 	my $raw;
-	{
-		local $/;
-		$raw = <$fh>;
+
+	if($o{file}) {
+		my $fh;
+		unless(open($fh, "<", $o{file})) {
+			return (undef, "unable to open '$o{file}': $!");
+		}
+		{
+			local $/;
+			$raw = <$fh>;
+		}
+		close($fh);
 	}
-	unless(close($fh)) {
-		return (undef, "'" . join(" ", @argv) . "' exited with status " . ($? >> 8));
+	else {
+		my $cmd = $o{cmd} || "amdgpu_top -J -n 1";
+		my @argv = (split(/\s+/, $cmd), ($o{no_pc} ? ("--no-pc") : ()));
+
+		logger("$myself: executing '" . join(" ", @argv) . "'.") if $o{debug};
+
+		my $fh;
+		unless(open($fh, "-|", @argv)) {
+			return (undef, "unable to execute '" . join(" ", @argv) . "': $!");
+		}
+		{
+			local $/;
+			$raw = <$fh>;
+		}
+		unless(close($fh)) {
+			return (undef, "'" . join(" ", @argv) . "' exited with status " . ($? >> 8));
+		}
 	}
 
 	return (undef, "empty output") unless(defined($raw) && length($raw));
@@ -308,7 +324,10 @@ sub amdgpu_top_init {
 
 	# checks if the command works and returns parseable JSON
 	{
-		my ($data, $err) = collect_json($myself, cmd => $amdgpu_top->{cmd}, no_pc => lc($amdgpu_top->{no_pc} || "") eq "y" ? 1 : 0);
+		my ($data, $err) = collect_json($myself,
+			cmd   => $amdgpu_top->{cmd},
+			file  => $amdgpu_top->{file},
+			no_pc => lc($amdgpu_top->{no_pc} || "") eq "y" ? 1 : 0);
 		if($err) {
 			logger("$myself: ERROR: $err");
 			return;
@@ -323,7 +342,10 @@ sub amdgpu_top_init {
 	my $total_number_of_gpus = 0;
 	foreach my $k (sort keys %{$amdgpu_top->{list}}) {
 		my @gpu_group = split(', ', $amdgpu_top->{list}->{$k});
-		$total_number_of_gpus += scalar(@gpu_group);
+		$total_number_of_gpus += ($max_number_of_gpus < scalar(@gpu_group) ? $max_number_of_gpus : scalar(@gpu_group));
+		if($max_number_of_gpus < scalar(@gpu_group)) {
+			logger("$myself: WARNING: group $k has more than $max_number_of_gpus devices, only the first $max_number_of_gpus will be monitored.");
+		}
 	}
 
 	if(-e $rrd) {
@@ -356,9 +378,10 @@ sub amdgpu_top_init {
 			push(@max, "RRA:MAX:0.5:1440:" . (365 * $n));
 			push(@last, "RRA:LAST:0.5:1440:" . (365 * $n));
 		}
-		for(my $k = 0; $k < keys(%{$amdgpu_top->{list}}); $k++) {
-			my @gpu_group = split(', ', $amdgpu_top->{list}->{$k});
-			for($n = 0; $n < scalar(@gpu_group); $n++) {
+		my @group_keys = sort keys %{$amdgpu_top->{list}};
+		for(my $k = 0; $k < scalar(@group_keys); $k++) {
+			my @gpu_group = split(', ', $amdgpu_top->{list}->{$group_keys[$k]});
+			for($n = 0; $n < scalar(@gpu_group) && $n < $max_number_of_gpus; $n++) {
 				foreach my $s (@DSPEC) {
 					push(@tmp, "DS:e" . $k . "d" . $n . "_" . $s->[0] . ":GAUGE:120:0:U");
 				}
@@ -403,6 +426,76 @@ sub amdgpu_top_init {
 	push(@{$config->{func_update}}, $package);
 
 	logger("$myself: Ok") if $debug;
+}
+
+# ---------------------------------------------------------------------------
+# module update (called every minute by the Monitorix daemon)
+# ---------------------------------------------------------------------------
+sub amdgpu_top_update {
+	my $myself = (caller(0))[3];
+	my ($package, $config, $debug) = @_;
+	my $rrd = $config->{base_lib} . $package . ".rrd";
+	my $amdgpu_top = $config->{amdgpu_top};
+
+	my $use_nan_for_missing_data = lc($amdgpu_top->{use_nan_for_missing_data} || "") eq "y" ? 1 : 0;
+	my $fill = $use_nan_for_missing_data ? "U" : "0";
+
+	my ($data, $err) = collect_json($myself,
+		cmd   => $amdgpu_top->{cmd},
+		file  => $amdgpu_top->{file},
+		no_pc => lc($amdgpu_top->{no_pc} || "") eq "y" ? 1 : 0,
+		debug => $debug);
+
+	if($err) {
+		logger("$myself: WARNING: $err; writing missing values instead.");
+	}
+
+	my $devices = ref($data) eq "HASH" ? $data->{devices} : [];
+
+	my $rrdata = "N";
+	my %extract_cache;
+
+	# iteration order must be identical to the RRD creation order in _init!
+	my @group_keys = sort keys %{$amdgpu_top->{list}};
+	for(my $k = 0; $k < scalar(@group_keys); $k++) {
+		my @gpu_group = split(', ', $amdgpu_top->{list}->{$group_keys[$k]});
+		for(my $n = 0; $n < scalar(@gpu_group) && $n < $max_number_of_gpus; $n++) {
+			# NOTE: do not use trim() here - Monitorix' trim() returns an
+			# empty string for the (valid) device index "0".
+			my $idx = defined($gpu_group[$n]) ? $gpu_group[$n] : "";
+			$idx =~ s/^\s+//;
+			$idx =~ s/\s+$//;
+			$idx =~ s/^\"//;
+			$idx =~ s/\"$//;
+
+			my $vals;
+			if($idx =~ /^\d+$/) {
+				if(exists($extract_cache{$idx})) {
+					$vals = $extract_cache{$idx};
+				}
+				else {
+					$vals = extract_values($devices->[$idx]);
+					$extract_cache{$idx} = $vals;
+					if(!defined($vals) && defined($data)) {
+						logger("$myself: WARNING: device index $idx not found in amdgpu_top output (group " . $group_keys[$k] . ").");
+					}
+				}
+			}
+			else {
+				logger("$myself: ERROR: invalid device index '$gpu_group[$n]' in group " . $group_keys[$k] . ".");
+			}
+
+			foreach my $s (@DSPEC) {
+				my $v = defined($vals) ? $vals->{$s->[0]} : undef;
+				$rrdata .= ":" . (defined($v) ? $v : $fill);
+			}
+		}
+	}
+
+	RRDs::update($rrd, $rrdata);
+	logger("$myself: $rrdata") if $debug;
+	my $rrderr = RRDs::error;
+	logger("ERROR: while updating $rrd: $rrderr") if $rrderr;
 }
 
 1;
