@@ -222,9 +222,9 @@ Standard-RRD-Fetch-Tabelle (wie amdenergy) **ohne** externen Aufruf, gruppiert n
 - Textmodus (Tabelle + Info-Block via `--dump`) bereits in Schritt 5 verifiziert; HTML-Zweispaltenlayout im E2E-HTML bestätigt (`<td>` Panels 1–5, `<td class='td-valign-top'>` Panels 6–10, Titel colspan=2).
 - DoD erfüllt: E2E `curl 'http://localhost:8080/monitorix.cgi?mode=localhost&graph=amdgpu_top&when=day&color=white'` → 20 PNGs, 0 ERRORs, keine RRDtool-Fehler im HTML. ✓
 
-### Schritt 7 — Robustheit & Sonderfälle
-- Tests: (a) `no_pc=y` → GRBM/GRBM2-Panels leer/NaN ohne Crash; (b) `cmd = /usr/bin/printf 'müll\n'` → Update schreibt NaN, Log-Warnung, Daemon läuft weiter; (c) Geräteindex außerhalb devices[] → NaN; (d) `use_nan_for_missing_data=n` → 0er; (e) Liste mit 2 Slots „0, 0“ → beide Spalten gefüllt (DS-Offsets korrekt!).
-- DoD: alle Fälle protokolliert in `docs/testlog.md`.
+### Schritt 7 — Robustheit & Sonderfälle ✅ (2026-11-09)
+- Tests in `t_robust.pl` (Assertions auf den bei `debug=1` geloggten Update-String, da rrdtool Buckets lazy konsolidiert): (a/a2) `no_pc=y` Datei+live → GRBM/GRBM2 `U` ohne Crash; (b) kaputte Ausgabe bei init → ERROR-Log, `_init` bricht bewusst vor RRD-Anlage ab; (b1) Tool weg NACH init → alle DS `U`, RRD bleibt, Daemon läuft weiter; (b2) Binary fehlt; (b3) `file` fehlt; (c) Index außerhalb `devices[]` → Slot `U` + WARNING; (c2) nicht-numerischer Index → ERROR + `U`; (d) `use_nan_for_missing_data=n` → 0er statt `U`; (e) „0, 0“ → 158 DS, beide Blöcke identisch; (f) fremdes RRD → `.bak`-Rotation + 79 DS.
+- DoD: alle Fälle protokolliert in `docs/testlog.md`. ✓ ALL CHECKS PASSED
 
 ### Schritt 8 — Dokumentation & Abschluss
 - `README.md`: Installation (Pfad-Ziele, `systemctl restart monitorix`), alle Config-Optionen, DS-Schema-Tabelle, bewusste Nicht-Abbildungen, Hinweis DS-Änderung ⇒ RRD-Neubau.

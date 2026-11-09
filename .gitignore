@@ -2,6 +2,7 @@
 *.rrd
 *.rrd.bak
 test/
+test_robust/
 *.png
 
 # Backup/Temporäres
