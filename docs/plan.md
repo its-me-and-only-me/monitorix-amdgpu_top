@@ -65,7 +65,7 @@ Installationsziele:
 - conf.d-Merge (`/etc/monitorix/conf.d/*.conf`, sowohl Daemon als auch CGI):
   - `additional_graph_name = amdgpu_top` → wird an `graph_name` **angehängt**
   - `<graph_enable> amdgpu_top = y </graph_enable>` → Hash-Merge
-  - `<descriptions>`: `amdgpu_top = …` (Modultitel) und `_amdgpu_top1 … _amdgpu_topN` (Plot-Titel; Zugriffspfad `$config->{graphs}->{'_amdgpu_top'.$n}` — flach, gruppenunabhängig)
+  - `<graph_title>`: `amdgpu_top = …` (Modultitel, aus `$config->{graph_title}->{$package}`); Plot-Titel aus `<graphs>`: `_amdgpu_top1 … _amdgpu_topN` (Zugriffspfad `$config->{graphs}->{'_amdgpu_top'.$n}` — flach, gruppenunabhängig). **Korrektur Step 5:** die Sektion heißt real `<graph_title>`, nicht `<descriptions>`.
 - Bildnamen-Konvention (CGI): `"$u$package$k$n[.z].$tf->{when}.$imgfmt"` → `amdgpu_top00.day.png`, Zoom `amdgpu_top00z.day.png` in `$config->{base_dir}/$config->{imgs_dir}`.
 - RRD-Konventionen: `DS:<name>:GAUGE:120:0:U`; **DS-Namenslimit 19 Zeichen**; Standard-RRA-Set wie amdenergy.pm (AVERAGE/MIN/MAX/LAST je 1:1440, 30:336, 60:744 + `max_historic_years`-RRAs); Größenänderung → `.bak` + Neubau mit Log-Hinweis.
 - Nützliche Helpers aus `Monitorix.pm`: `logger()`, `trim()`, `setup_riglim()`, `celsius_to()`; CGI-Setup: `$cgi->{tf}`, `$cgi->{colors}`, `$cgi->{graph}`, `$cgi->{silent}`, `$config->{global_zoom}`, `$config->{image_format}`, `main::graph_header/graph_footer`, `main::graph_descr`.
@@ -85,8 +85,11 @@ additional_graph_name = amdgpu_top
 	amdgpu_top	= y
 </graph_enable>
 
-<descriptions>
+<graph_title>
 	amdgpu_top		= AMD GPU statistics (amdgpu_top JSON)
+</graph_title>
+
+<graphs>
 	_amdgpu_top1	= GPU usage
 	_amdgpu_top2	= GRBM engines
 	_amdgpu_top3	= GRBM2 engines
@@ -97,7 +100,7 @@ additional_graph_name = amdgpu_top
 	_amdgpu_top8	= Voltage
 	_amdgpu_top9	= Fan speed
 	_amdgpu_top10	= Media engine usage
-</descriptions>
+</graphs>
 
 <amdgpu_top>
 	<list>
@@ -201,9 +204,17 @@ Standard-RRD-Fetch-Tabelle (wie amdenergy) **ohne** externen Aufruf, gruppiert n
 - **Erkenntnis:** Die Debug-Key-Validierung läuft VOR dem conf.d-Merge → `-d amdgpu_top` stirbt mit „Invalid debug key“; `-d all` benutzen.
 - DoD: RRD minütlich aktualisiert; keine WARNINGS/Fehler im Log; `rrdtool fetch` live plausibel. ✓
 
-### Schritt 5 — `_cgi` Graph-Modus (10 Panels)
-- Umsetzung nach 2.3 + amdenergy/nvidiagpu-Muster: IMG/IMGz-Arrays, `setup_riglim`, @LC-Farben, LINE/AREA/legend (`GLEG` bei show_current_values), `--vertical-label` je Panel, `main::graph_descr`, `graphv`/`graph`, Zoom, „main“-Plots 1–7 mit avg/min/max-Zusatzzeile wie nvidiagpu, Panels 8–10 `small` + version12_small.
-- DoD: `perl -c` OK; nach `cp` → `systemctl start monitorix` (oder Foreground-Lauf) erzeugt `curl 'http://localhost:8080/monitorix.cgi?g=amdgpu_top&t=day'` die PNGs `amdgpu_top0{0..9}.day.png` (+z) unter `/var/lib/monitorix/www/imgs/`.
+### Schritt 5 — `_cgi` Graph-Modus (10 Panels) ✅ (2026-11-09)
+- Umsetzung nach 2.3 + amdenergy/nvidiagpu-Muster: IMG/IMGz-Arrays, `setup_riglim`, @LC-Farben (11), LINE2 (main) / LINE1 (small), Panel 7 mit AREA-Hintergründen, `--vertical-label` je Panel, `graphv`, Zoom, Panels 1–7 `main` mit Current/Average/Min/Max-Legende, Panels 8–10 `small` + version12_small + Kurzwert-Legende bei `show_current_values`.
+- Höhenanpassung: +13 px (main) bzw. +10 px (small) pro Legendenzeile über 1 hinaus, damit 8–9-zeilige Legenden passen.
+- Temperaturpanel: CDEF-Umrechnung auf Fahrenheit bei `temperature_scale = f`.
+- Lücken-Markierung (`show_gaps`) nutzt allvalues mit `UN,0,1,IF` → Panel wird nur eingefärbt, wenn ALLE seine DS NaN sind (APU-sicher; Simple-Summe wie nvidiagpu würde bei einem fest-null-Sensor das ganze Panel grau malen).
+- **Erkenntnisse (wichtig für Doku):**
+  1. Modultitel kommen aus Sektion `<graph_title>` (NICHT `<descriptions>` wie im Plan-Entwurf); Plot-Titel aus `<graphs>` (`_amdgpu_topN`). Beides wird per conf.d-Hash-Merge ergänzt.
+  2. CGI-URL-Parameter sind `mode=localhost&graph=amdgpu_top&when=day&color=white` (NICHT `g=`/`t=`); `mode` fehlt → gar kein Modul rendert.
+  3. PNG-Namen nutzen `tf->{when}` = `"1day"` → Dateien heißen `amdgpu_top00.1day.png` usw.
+  4. `enable_parallelizing = y` (Default) forked Module; Kind-Die/Stderr verschwinden → direkter Funktionsaufruf via Harness `t_cgi.pl` als primärer Testweg.
+- Test: `./t_cgi.pl` (Graph-Tages-, Text-Tages-, Text-Wochen-Szenario) ALL CHECKS PASSED; E2E `curl 'http://localhost:8080/monitorix.cgi?mode=localhost&graph=amdgpu_top&when=day&color=white'` → 20 IMG-Referenzen (10 + 10 Zoom), keine ERRORs, PNGs in `/var/lib/monitorix/www/imgs/` visuell geprüft (Temperatures, Memory usage, Media engine usage). ✓
 
 ### Schritt 6 — Visuelle Abnahme + Textmodus
 - PNGs mit Read-Tool ansehen: Kurven plausibel, Legenden lesbar, keine „nan“-Artefakte, leere Panels (Fan/Voltage bei APU) sauber gezeichnet.

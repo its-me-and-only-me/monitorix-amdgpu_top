@@ -31,7 +31,7 @@ use JSON::PP;
 use Cwd 'abs_path';
 use File::Basename;
 use Exporter 'import';
-our @EXPORT = qw(amdgpu_top_init amdgpu_top_update);	# + amdgpu_top_cgi (Step 5)
+our @EXPORT = qw(amdgpu_top_init amdgpu_top_update amdgpu_top_cgi);
 
 my $max_number_of_gpus = 8;	# Changing this number destroys history.
 
@@ -496,6 +496,557 @@ sub amdgpu_top_update {
 	logger("$myself: $rrdata") if $debug;
 	my $rrderr = RRDs::error;
 	logger("ERROR: while updating $rrd: $rrderr") if $rrderr;
+}
+
+# ---------------------------------------------------------------------------
+# CGI mode
+# ---------------------------------------------------------------------------
+
+# map DS suffix -> position inside the per-device block of the RRD
+my %DS_INDEX;
+{
+	my $i = 0;
+	$DS_INDEX{$_->[0]} = $i++ foreach (@DSPEC);
+}
+
+# best-effort static device information for the text mode
+# ('amdgpu_top -J --dump' terminates immediately; the CGI runs as an
+# unprivileged user, so any failure is silently ignored)
+sub collect_info {
+	my ($config) = @_;
+
+	my $cmd = $config->{amdgpu_top}->{cmd} || "amdgpu_top -J -n 1";
+	my ($bin) = split(/\s+/, $cmd);
+	$bin = "amdgpu_top" unless $bin;
+
+	my ($data, $err) = collect_json("amdgpu_top_cgi", cmd => "$bin -J --dump");
+	return () if($err || ref($data) ne "HASH");
+
+	my @lines;
+	my $i = 0;
+	foreach my $dev (@{$data->{devices}}) {
+		next unless ref($dev) eq "HASH";
+		# '--dump' flattens the 'Info' object into the device hash
+		my $val = sub {
+			my ($k) = @_;
+			my $v = ref($dev->{Info}) eq "HASH" ? $dev->{Info}{$k} : undef;
+			$v = $dev->{$k} unless defined($v);
+			return $v;
+		};
+		my $av  = ref($dev->{amdgpu_top_version}) eq "HASH" ?
+			"amdgpu_top " . join(".", map { $dev->{amdgpu_top_version}{$_} // 0 } qw(major minor patch)) : "";
+		my $drm_h = $val->("drm_version");
+		my $drm = ref($drm_h) eq "HASH" ?
+			"drm " . join(".", map { $drm_h->{$_} // 0 } qw(major minor patchlevel)) : "";
+		my $vram_sz = $val->("VRAM Size");
+		$vram_sz = sprintf("%d MiB", $vram_sz / 1048576) if defined($vram_sz) && $vram_sz =~ /^\d+$/;
+
+		push(@lines, sprintf("GPU %d: %s (%s, %s, %s)", $i,
+			$val->("DeviceName") // "?",
+			$val->("ASIC Name")  // "?",
+			$val->("GPU Type")   // "?",
+			$val->("gfx_target_version") // "?"));
+		push(@lines, sprintf("     VRAM: %s %s (%s bit) | CUs: %s | %s | %s",
+			$vram_sz // "?",
+			$val->("VRAM Type") // "?",
+			$val->("VRAM Bit width") // "?",
+			$val->("Total Compute Unit") // "?",
+			$drm, $av));
+		$i++;
+	}
+	return @lines;
+}
+
+sub amdgpu_top_cgi {
+	my ($package, $config, $cgi) = @_;
+	my @output;
+
+	my $amdgpu_top = $config->{amdgpu_top};
+	my @rigid = split(',', ($amdgpu_top->{rigid} || ""));
+	my @limit = split(',', ($amdgpu_top->{limit} || ""));
+	my $tf = $cgi->{tf};
+	my $colors = $cgi->{colors};
+	my $graph = $cgi->{graph};
+	my $silent = $cgi->{silent};
+	my $zoom = $config->{global_zoom};
+	my %rrd = (
+		'new' => \&RRDs::graphv,
+		'old' => \&RRDs::graph,
+		);
+	my $version = "new";
+	my @full_size_mode;
+	my $pic;
+	my $picz;
+	my $picz_width;
+	my $picz_height;
+
+	my $u = "";
+	my $width;
+	my $height;
+	my @extra;
+	my @riglim;
+	my @IMG;
+	my @IMGz;
+	my @tmp;
+	my @tmpz;
+	my @CDEF;
+	my $n;
+	my $n2;
+	my $n_plot;
+	my $e;
+	my $e2;
+	my $str;
+	my $err;
+	my @LC = (
+		"#FFA500",
+		"#44EEEE",
+		"#44EE44",
+		"#4444EE",
+		"#448844",
+		"#EE4444",
+		"#EE44EE",
+		"#EEEE44",
+		"#FF8800",
+		"#00B4B4",
+		"#88CC44",
+	);
+
+	my $show_current_values = lc($amdgpu_top->{show_current_values} || "") eq "y" ? 1 : 0;
+
+	$version = "old" if $RRDs::VERSION < 1.3;
+	push(@full_size_mode, "--full-size-mode") if $RRDs::VERSION > 1.3;
+	my $rrd = $config->{base_lib} . $package . ".rrd";
+	my $title = $config->{graph_title}->{$package};
+	my $IMG_DIR = $config->{base_dir} . "/" . $config->{imgs_dir};
+	my $imgfmt_uc = uc($config->{image_format});
+	my $imgfmt_lc = lc($config->{image_format});
+	foreach my $i (split(',', $config->{rrdtool_extra_options} || "")) {
+		push(@extra, trim($i)) if trim($i);
+	}
+
+	$title = !$silent ? $title : "";
+
+	# panel definitions (see docs/plan.md section 2.3): vertical axis
+	# label, legend number format and the DS suffixes with legend labels.
+	# An optional third element forces the draw style (and color) of a DS.
+	my @PANELS = (
+		{ vl => "Percent (%)", fmt => "%5.1lf%%", metrics => [
+			["act_gfx",    "GFX"],
+			["act_media",  "Media"],
+			["act_mem",    "Memory"],
+			["fd_gfx",     "fd GFX"],
+			["fd_cpu",     "fd CPU"],
+			["fd_comp",    "fd Compute"],
+			["fd_dma",     "fd DMA"],
+			["fd_media",   "fd Media"],
+		]},
+		{ vl => "Percent (%)", fmt => "%5.1lf%%", metrics => [
+			["g_pipe",     "Graphics Pipe"],
+			["t_pipe",     "Texture Pipe"],
+			["prim_asm",   "Primitive Asm"],
+			["sh_export",  "Shader Export"],
+			["sh_interp",  "Shader Interpol"],
+			["color_blk",  "Color Block"],
+			["depth_blk",  "Depth Block"],
+			["geom_eng",   "Geometry Engine"],
+		]},
+		{ vl => "Percent (%)", fmt => "%5.1lf%%", metrics => [
+			["cp_gfx",     "Cmd Proc GFX"],
+			["cp_comp",    "Cmd Proc Comp"],
+			["cp_fetch",   "Cmd Proc Fetch"],
+			["eff_arb",    "Efficiency Arb"],
+			["ring_ctrl",  "Ring List Ctrl"],
+			["sdma",       "SDMA"],
+			["tex_cache",  "Tex Cache/Pipe"],
+			["rb_memif",   "RB Mem If"],
+			["utc_l2",     "UTC Level-2"],
+		]},
+		{ vl => "Celsius", fmt => "%5.1lf", temp => 1, metrics => [
+			["t_edge",     "Edge"],
+			["t_junc",     "Junction"],
+			["t_mem",      "Memory"],
+			["t_tctl",     "CPU Tctl"],
+			["gm_t_gfx",   "GM GFX"],
+			["gm_t_soc",   "GM SOC"],
+			["gm_t_core",  "GM Core avg"],
+			["gm_t_hot",   "GM Hotspot"],
+		]},
+		{ vl => "MHz", fmt => "%6.0lf", metrics => [
+			["sclk",       "SCLK"],
+			["mclk",       "MCLK"],
+			["gm_agfxclk", "GM avg GFXclk"],
+			["gm_afclk",   "GM avg FCLK"],
+			["gm_auclk",   "GM avg UCLK"],
+			["gm_asocclk", "GM avg SOCclk"],
+		]},
+		{ vl => "Watt", fmt => "%6.1lf", metrics => [
+			["p_avg",      "Average"],
+			["p_input",    "Input"],
+			["p_gfx",      "GFX"],
+			["gm_p_sock",  "GM Socket"],
+		]},
+		{ vl => "MiB", fmt => "%8.0lf", metrics => [
+			["vram_tot",   "VRAM total", "AREA:#C8C8C8"],
+			["vram_use",   "VRAM used",  "LINE2"],
+			["gtt_tot",    "GTT total",  "AREA:#E6E6F6"],
+			["gtt_use",    "GTT used",   "LINE2"],
+		]},
+		{ vl => "Millivolt (mV)", fmt => "%6.1lf", metrics => [
+			["vddgfx",     "VDDGFX"],
+			["vddnb",      "VDDNB"],
+			["gm_v_gfx",   "GM GFX"],
+			["gm_v_soc",   "GM SOC"],
+			["gm_v_mem",   "GM Mem"],
+		]},
+		{ vl => "Percent (%)", fmt => "%5.1lf%%", metrics => [
+			["fan",        "Fan"],
+			["gm_fan_pwm", "GM fan PWM"],
+		]},
+		{ vl => "Percent (%)", fmt => "%5.1lf%%", metrics => [
+			["fd_dec",     "Decode"],
+			["fd_enc",     "Encode"],
+			["fd_media",   "Media"],
+			["fd_jpeg",    "JPEG"],
+			["fd_vcn",     "VCN Unified"],
+			["fd_vpe",     "VPE"],
+		]},
+	);
+	my $number_of_plots = scalar(@PANELS);	# 10
+	my $main_size_plots = 7;		# panels 1-7 use graph size 'main'
+	my $main_column_plots = 5;		# panels 1-5 left, 6-10 right column
+
+	# text mode
+	#
+	if(lc($config->{iface_mode}) eq "text") {
+		if($title) {
+			push(@output, main::graph_header($title, 2));
+			push(@output, "    <tr>\n");
+			push(@output, "    <td>\n");
+		}
+		my (undef, undef, undef, $data) = RRDs::fetch("$rrd",
+		"--resolution=$tf->{res}",
+		"--start=-$tf->{nwhen}$tf->{twhen}",
+		"AVERAGE");
+		$err = RRDs::error;
+		push(@output, "ERROR: while fetching $rrd: $err\n") if $err;
+
+		# subset of values for the text table:
+		# [ DS suffix, table header, sprintf format, is temperature ]
+		my @TEXT_COLS = (
+			["act_gfx",    "GFX%",  "%6.0f", 0],
+			["t_edge",     "Edge",  "%6.0f", 1],
+			["t_tctl",     "Tctl",  "%6.0f", 1],
+			["sclk",       "SCLK",  "%6.0f", 0],
+			["mclk",       "MCLK",  "%6.0f", 0],
+			["gm_p_sock",  "Pow W", "%6.1f", 0],
+			["vram_use",   "VRAM",  "%6.0f", 0],
+			["gtt_use",    "GTT",   "%6.0f", 0],
+			["proc_count", "Proc",  "%6.0f", 0],
+		);
+
+		# walk groups/slots exactly like _update() does to know the
+		# position of every device slot inside the fetched row
+		my @groups;
+		my @slot_base;
+		my $seen = 0;
+		foreach my $k (sort keys %{$amdgpu_top->{list}}) {
+			my @d = split(', ', $amdgpu_top->{list}->{$k});
+			@d = @d[0 .. $max_number_of_gpus - 1] if(scalar(@d) > $max_number_of_gpus);
+			push(@groups, \@d);
+			push(@slot_base, $seen);
+			$seen += scalar(@d);
+		}
+
+		my $line1;
+		my $line2;
+		my $line3;
+		push(@output, "    <pre style='font-size: 12px; color: $colors->{fg_color}';>\n");
+		foreach my $g (0 .. $#groups) {
+			for($n = 0; $n < scalar(@{$groups[$g]}); $n++) {
+				$str = amdgpu_top_dev_label($config, $groups[$g][$n]);
+				$line1 .= sprintf(" %-15s", substr($str, 0, 15));
+				$line2 .= " " . join(" ", map { sprintf("%6s", $_->[1]) } @TEXT_COLS);
+				$line3 .= "-" x (scalar(@TEXT_COLS) * 7);
+			}
+		}
+		push(@output, "     $line1\n");
+		push(@output, "Time $line2\n");
+		push(@output, "-----$line3\n");
+		my $line;
+		my @row;
+		my $time;
+		for($n = 0, $time = $tf->{tb}; $n < ($tf->{tb} * $tf->{ts}); $n++) {
+			$line = @$data[$n];
+			$time = $time - (1 / $tf->{ts});
+			push(@output, sprintf(" %2d$tf->{tc} ", $time));
+			foreach my $g (0 .. $#groups) {
+				for($n2 = 0; $n2 < scalar(@{$groups[$g]}); $n2++) {
+					my $base = $slot_base[$g] + $n2 * $number_of_values_per_gpu_in_rrd;
+					@row = ();
+					foreach my $tc (@TEXT_COLS) {
+						my $v = @$line[$base + $DS_INDEX{$tc->[0]}];
+						$v = celsius_to($config, $v) if($tc->[3] && defined($v));
+						push(@row, defined($v) ? sprintf($tc->[2], $v) : sprintf("%6s", "n/a"));
+					}
+					push(@output, " " . join(" ", @row));
+				}
+			}
+			push(@output, "\n");
+		}
+		push(@output, "    </pre>\n");
+
+		# optional static device info block (best-effort)
+		if(lc($amdgpu_top->{show_info} || "") eq "y" && !$silent) {
+			my @info = collect_info($config);
+			if(@info) {
+				push(@output, "    <br>\n");
+				push(@output, "    <pre style='font-size: 12px; color: $colors->{fg_color}';>\n");
+				push(@output, "$_\n") foreach (@info);
+				push(@output, "    </pre>\n");
+			}
+		}
+
+		if($title) {
+			push(@output, "    </td>\n");
+			push(@output, "    </tr>\n");
+			push(@output, main::graph_footer());
+		}
+		push(@output, "  <br>\n");
+		return @output;
+	}
+
+
+	# graph mode
+	#
+	if($silent eq "yes" || $silent eq "imagetag") {
+		$zoom = 1;	# force 'global_zoom' to 1 in Multihost viewer
+		$colors->{fg_color} = "#000000";  # visible color for text mode
+		$u = "_";
+	}
+	if($silent eq "imagetagbig") {
+		$zoom = 1;	# force 'global_zoom' to 1 in Multihost viewer
+		$colors->{fg_color} = "#000000";  # visible color for text mode
+		$u = "";
+	}
+	my $global_zoom = "--zoom=" . $zoom;
+
+	for($n = 0; $n < keys(%{$amdgpu_top->{list}}); $n++) {
+		for($n2 = 0; $n2 < $number_of_plots; $n2++) {
+			$str = $u . $package . $n . $n2 . "." . $tf->{when} . ".$imgfmt_lc";
+			push(@IMG, $str);
+			unlink("$IMG_DIR" . $str);
+			if(lc($config->{enable_zoom}) eq "y") {
+				$str = $u . $package . $n . $n2 . "z." . $tf->{when} . ".$imgfmt_lc";
+				push(@IMGz, $str);
+				unlink("$IMG_DIR" . $str);
+			}
+		}
+	}
+
+	$e = 0;
+	foreach my $k (sort keys %{$amdgpu_top->{list}}) {
+		my @d = split(', ', $amdgpu_top->{list}->{$k});
+		@d = @d[0 .. $max_number_of_gpus - 1] if(scalar(@d) > $max_number_of_gpus);
+		if($title) {
+			push(@output, main::graph_header($title, 2));
+			push(@output, "    <tr>\n");
+			push(@output, "    <td>\n");
+		}
+		for($n_plot = 0; $n_plot < $number_of_plots; $n_plot++) {
+			if($title && $n_plot == $main_column_plots) {
+				push(@output, "    </td>\n");
+				push(@output, "    <td class='td-valign-top'>\n");
+			}
+
+			my $panel = $PANELS[$n_plot];
+			my $fmt = $panel->{fmt};
+			my $is_main = $n_plot < $main_size_plots ? 1 : 0;
+			my $temp_f = ($panel->{temp} && lc($config->{temperature_scale}) eq "f") ? 1 : 0;
+			my $vlabel = $temp_f ? "Fahrenheit" : $panel->{vl};
+
+			@riglim = @{setup_riglim($rigid[$n_plot], $limit[$n_plot])};
+			undef(@tmp);
+			undef(@tmpz);
+			undef(@CDEF);
+			my @def;
+			my $allvalues = "CDEF:allvalues=";
+			my $ndef = 0;
+			my $multi = scalar(@d) > 1 ? 1 : 0;
+
+			for($n = 0; $n < scalar(@d); $n++) {
+				my $dname = amdgpu_top_dev_label($config, $d[$n]);
+
+				for($n2 = 0; $n2 < scalar(@{$panel->{metrics}}); $n2++) {
+					my ($suffix, $mlabel, $style) = @{$panel->{metrics}[$n2]};
+					my $vname = "e" . $e . "d" . $n . "_" . $suffix;
+					my $tname = "t_" . $vname;
+
+					push(@def, "DEF:" . $vname . "=$rrd:" . $vname . ":AVERAGE");
+					$allvalues .= "," if($ndef++);
+					$allvalues .= $vname . ",UN,0,1,IF";
+					push(@CDEF, "CDEF:" . $tname . "=" . $vname . ($temp_f ? ",9,*,5,/,32,+" : ""));
+
+					# draw style and color
+					my ($kind, $col);
+					if(defined($style) && $style =~ /^(AREA|LINE\d)(#.*)?$/) {
+						$kind = $1;
+						$col = $2 // $LC[($n2 + $n * 3) % scalar(@LC)];
+					}
+					else {
+						$kind = $is_main ? "LINE2" : "LINE1";
+						$col = $LC[($n2 + $n * 3) % scalar(@LC)];
+					}
+
+					my $lbl = ($multi ? $dname . " " : "") . $mlabel;
+					if($is_main) {
+						$str = sprintf("%-15s", substr($lbl, 0, 15));
+						push(@tmp, "COMMENT: \\n") if($n_plot == 0 && $n == 0 && $n2 == 0);
+					}
+					else {
+						$str = sprintf("%-13s", substr($lbl, 0, 13));
+					}
+					push(@tmp, $kind . ":" . $tname . $col . ":" . $str);
+					push(@tmpz, $kind . ":" . $tname . $col . ":" . $lbl);
+
+					if($is_main) {
+						push(@tmp, "GPRINT:" . $tname . ":LAST:  Current\\:" . $fmt);
+						push(@tmp, "GPRINT:" . $tname . ":AVERAGE: Average\\:" . $fmt);
+						push(@tmp, "GPRINT:" . $tname . ":MIN: Min\\:" . $fmt);
+						push(@tmp, "GPRINT:" . $tname . ":MAX: Max\\:" . $fmt . "\\n");
+					}
+					else {
+						if($show_current_values) {
+							push(@tmp, "GPRINT:" . $tname . ":LAST:\\: " . $fmt . "\\n");
+						}
+					}
+				}
+			}
+			$allvalues .= ",+" x ($ndef - 1);
+			push(@CDEF, $allvalues);
+
+			if(lc($config->{show_gaps}) eq "y") {
+				push(@tmp, "AREA:wrongdata#$colors->{gap}:");
+				push(@tmpz, "AREA:wrongdata#$colors->{gap}:");
+				push(@CDEF, "CDEF:wrongdata=allvalues,UN,INF,UNKN,IF");
+			}
+
+			($width, $height) = split('x', $config->{graph_size}->{$is_main ? 'main' : 'small'});
+			# make room for long legends (one line per DS and device)
+			my $legend_lines = scalar(@d) * scalar(@{$panel->{metrics}});
+			$height += ($is_main ? 13 : 10) * ($legend_lines - 1) if($legend_lines > 1);
+			if($silent =~ /imagetag/) {
+				($width, $height) = split('x', $config->{graph_size}->{remote}) if $silent eq "imagetag";
+				($width, $height) = split('x', $config->{graph_size}->{main}) if $silent eq "imagetagbig";
+				@tmp = @tmpz;
+				push(@tmp, "COMMENT: \\n");
+				push(@tmp, "COMMENT: \\n");
+				push(@tmp, "COMMENT: \\n");
+			}
+
+			my $plot_title = $config->{graphs}->{'_amdgpu_top' . ($n_plot + 1)};
+			$plot_title = "Panel " . ($n_plot + 1) unless defined($plot_title);
+
+			$pic = $rrd{$version}->("$IMG_DIR" . $IMG[$e * $number_of_plots + $n_plot],
+				"--title=$plot_title ($tf->{nwhen}$tf->{twhen})",
+				"--start=-$tf->{nwhen}$tf->{twhen}",
+				"--imgformat=$imgfmt_uc",
+				"--vertical-label=" . $vlabel,
+				"--width=$width",
+				"--height=$height",
+				@extra,
+				@riglim,
+				$global_zoom,
+				@{$cgi->{version12}},
+				$is_main ? () : @{$cgi->{version12_small}},
+				@{$colors->{graph_colors}},
+				@def,
+				@CDEF,
+				@tmp);
+			$err = RRDs::error;
+			push(@output, "ERROR: while graphing $IMG_DIR" . $IMG[$e * $number_of_plots + $n_plot] . ": $err\n") if $err;
+
+			if(lc($config->{enable_zoom}) eq "y") {
+				($width, $height) = split('x', $config->{graph_size}->{zoom});
+				$picz = $rrd{$version}->("$IMG_DIR" . $IMGz[$e * $number_of_plots + $n_plot],
+					"--title=$plot_title  ($tf->{nwhen}$tf->{twhen})",
+					"--start=-$tf->{nwhen}$tf->{twhen}",
+					"--imgformat=$imgfmt_uc",
+					"--vertical-label=" . $vlabel,
+					"--width=$width",
+					"--height=$height",
+					@full_size_mode,
+					@extra,
+					@riglim,
+					$global_zoom,
+					@{$cgi->{version12}},
+					$is_main ? () : @{$cgi->{version12_small}},
+					@{$colors->{graph_colors}},
+					@def,
+					@CDEF,
+					@tmpz);
+				$err = RRDs::error;
+				push(@output, "ERROR: while graphing $IMG_DIR" . $IMGz[$e * $number_of_plots + $n_plot] . ": $err\n") if $err;
+			}
+
+			$e2 = $e + $n_plot + 1;
+			if($title || ($silent =~ /imagetag/ && $graph =~ /amdgpu_top$e2/)) {
+				if(lc($config->{enable_zoom}) eq "y") {
+					if(lc($config->{disable_javascript_void}) eq "y") {
+						push(@output, "      " . picz_a_element(config => $config, IMGz => $IMGz[$e * $number_of_plots + $n_plot], IMG => $IMG[$e * $number_of_plots + $n_plot]) . "\n");
+					}
+					else {
+						if($version eq "new") {
+							$picz_width = $picz->{image_width} * $zoom;
+							$picz_height = $picz->{image_height} * $zoom;
+						}
+						else {
+							$picz_width = $width + 115;
+							$picz_height = $height + 100;
+						}
+						push(@output, "      " . picz_js_a_element(width => $picz_width, height => $picz_height, config => $config, IMGz => $IMGz[$e * $number_of_plots + $n_plot], IMG => $IMG[$e * $number_of_plots + $n_plot]) . "\n");
+					}
+				}
+				else {
+					push(@output, "      " . img_element(config => $config, IMG => $IMG[$e * $number_of_plots + $n_plot]) . "\n");
+				}
+			}
+		}
+
+		if($title) {
+			push(@output, "    </td>\n");
+			push(@output, "    </tr>\n");
+
+			if($amdgpu_top->{desc}->{$k}) {
+				push(@output, "    <tr>\n");
+				push(@output, "      <td class='td-title' colspan='2'>\n");
+				push(@output, "       <font size='-1'>\n");
+				push(@output, "        <b>&nbsp;&nbsp;$amdgpu_top->{desc}->{$k}</b>\n");
+				push(@output, "       </font>\n");
+				push(@output, "      </td>\n");
+				push(@output, "    </tr>\n");
+			}
+			push(@output, main::graph_footer());
+		}
+		$e++;
+	}
+	push(@output, "  <br>\n");
+	return @output;
+}
+
+# display name of a device entry from <list> (honours <map>)
+sub amdgpu_top_dev_label {
+	my ($config, $entry) = @_;
+
+	my $idx = defined($entry) ? $entry : "";
+	$idx =~ s/^\s+//;
+	$idx =~ s/\s+$//;
+	$idx =~ s/^\"//;
+	$idx =~ s/\"$//;
+
+	if(defined($config->{amdgpu_top}->{map}->{$idx})) {
+		return $config->{amdgpu_top}->{map}->{$idx};
+	}
+	return "GPU $idx";
 }
 
 1;
