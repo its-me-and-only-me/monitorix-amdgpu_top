@@ -1,0 +1,9 @@
+# RRD-Dateien und Testartefakte
+*.rrd
+*.rrd.bak
+test/
+*.png
+
+# Backup/Temporäres
+*.bak
+*.tmp
