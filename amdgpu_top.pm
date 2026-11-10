@@ -28,8 +28,6 @@ use warnings;
 use Monitorix;
 use RRDs;
 use JSON::PP;
-use Cwd 'abs_path';
-use File::Basename;
 use Exporter 'import';
 our @EXPORT = qw(amdgpu_top_init amdgpu_top_update amdgpu_top_cgi);
 
@@ -95,8 +93,8 @@ sub gm {
 }
 
 # ---------------------------------------------------------------------------
-# DS spec: ordered list of [ ds-suffix (<= 14 chars; RRD DS name limit is 19
-# incl. the "e<k>d<n>_" prefix), extractor ]
+# DS spec: ordered list of [ ds-suffix, extractor ]; the suffix keeps the
+# full name "e<k>d<n>_<suffix>" within RRD's 19-character DS name limit.
 # The order defines the RRD data source creation order! (79 entries)
 # ---------------------------------------------------------------------------
 my @DSPEC = (
@@ -242,18 +240,38 @@ sub collect_json {
 	}
 	else {
 		my $cmd = $o{cmd} || "amdgpu_top -J -n 1";
+		my $cmd_timeout = (defined($o{timeout}) && $o{timeout} =~ /^\d+$/ && $o{timeout} > 0) ? $o{timeout} : 30;
 		my @argv = (split(/\s+/, $cmd), ($o{no_pc} ? ("--no-pc") : ()));
 
 		logger("$myself: executing '" . join(" ", @argv) . "'.") if $o{debug};
 
+		# 'amdgpu_top' talks directly to the DRM ioctls and may block
+		# indefinitely on a wedged GPU/driver (GPU reset, firmware hang).
+		# Since the Monitorix update loop runs modules sequentially, such a
+		# hang would stall the whole daemon - so enforce a hard timeout.
 		my $fh;
-		unless(open($fh, "-|", @argv)) {
+		my $child = open($fh, "-|", @argv);
+		unless(defined($child)) {
 			return (undef, "unable to execute '" . join(" ", @argv) . "': $!");
 		}
-		{
+
+		my $timed_out = 0;
+		eval {
+			local $SIG{ALRM} = sub { $timed_out = 1; die };
+			alarm($cmd_timeout);
 			local $/;
 			$raw = <$fh>;
-		}
+			alarm(0);
+			1;
+		} or do {
+			alarm(0);
+			kill("SIGKILL", $child);
+			waitpid($child, 0);
+			close($fh);
+			return (undef, $timed_out ?
+				"'" . join(" ", @argv) . "' timed out after $cmd_timeout seconds (GPU or driver unresponsive?)" :
+				"while reading from '" . join(" ", @argv) . "': $@");
+		};
 		unless(close($fh)) {
 			return (undef, "'" . join(" ", @argv) . "' exited with status " . ($? >> 8));
 		}
@@ -284,6 +302,11 @@ sub extract_values {
 		$v{$s->[0]} = num($val);
 	}
 	return \%v;
+}
+
+# ordered list of DS suffixes (public helper for the test harnesses)
+sub ds_names {
+	return map { $_->[0] } @DSPEC;
 }
 
 # ---------------------------------------------------------------------------
@@ -320,14 +343,17 @@ sub amdgpu_top_init {
 	if(!defined($amdgpu_top->{cmd})) {
 		$amdgpu_top->{cmd} = "amdgpu_top -J -n 1";
 	}
-	my $use_nan_for_missing_data = lc($amdgpu_top->{use_nan_for_missing_data} || "") eq "y" ? 1 : 0;
+	if(!defined($amdgpu_top->{cmd_timeout}) || $amdgpu_top->{cmd_timeout} !~ /^\d+$/ || $amdgpu_top->{cmd_timeout} == 0) {
+		$amdgpu_top->{cmd_timeout} = 30;
+	}
 
 	# checks if the command works and returns parseable JSON
 	{
 		my ($data, $err) = collect_json($myself,
-			cmd   => $amdgpu_top->{cmd},
-			file  => $amdgpu_top->{file},
-			no_pc => lc($amdgpu_top->{no_pc} || "") eq "y" ? 1 : 0);
+			cmd     => $amdgpu_top->{cmd},
+			file    => $amdgpu_top->{file},
+			timeout => $amdgpu_top->{cmd_timeout},
+			no_pc   => lc($amdgpu_top->{no_pc} || "") eq "y" ? 1 : 0);
 		if($err) {
 			logger("$myself: ERROR: $err");
 			return;
@@ -341,7 +367,7 @@ sub amdgpu_top_init {
 	# total number of device slots over all groups
 	my $total_number_of_gpus = 0;
 	foreach my $k (sort keys %{$amdgpu_top->{list}}) {
-		my @gpu_group = split(', ', $amdgpu_top->{list}->{$k});
+		my @gpu_group = split(/\s*,\s*/, $amdgpu_top->{list}->{$k});
 		$total_number_of_gpus += ($max_number_of_gpus < scalar(@gpu_group) ? $max_number_of_gpus : scalar(@gpu_group));
 		if($max_number_of_gpus < scalar(@gpu_group)) {
 			logger("$myself: WARNING: group $k has more than $max_number_of_gpus devices, only the first $max_number_of_gpus will be monitored.");
@@ -380,10 +406,13 @@ sub amdgpu_top_init {
 		}
 		my @group_keys = sort keys %{$amdgpu_top->{list}};
 		for(my $k = 0; $k < scalar(@group_keys); $k++) {
-			my @gpu_group = split(', ', $amdgpu_top->{list}->{$group_keys[$k]});
+			my @gpu_group = split(/\s*,\s*/, $amdgpu_top->{list}->{$group_keys[$k]});
 			for($n = 0; $n < scalar(@gpu_group) && $n < $max_number_of_gpus; $n++) {
 				foreach my $s (@DSPEC) {
-					push(@tmp, "DS:e" . $k . "d" . $n . "_" . $s->[0] . ":GAUGE:120:0:U");
+					# temperature DS allow negative values (min U), the
+					# others cannot go below zero
+					my $min = ($s->[0] =~ /^gm_t_/ || ($s->[0] =~ /^t_/ && $s->[0] ne "t_pipe")) ? "U" : "0";
+					push(@tmp, "DS:e" . $k . "d" . $n . "_" . $s->[0] . ":GAUGE:120:" . $min . ":U");
 				}
 			}
 		}
@@ -441,10 +470,11 @@ sub amdgpu_top_update {
 	my $fill = $use_nan_for_missing_data ? "U" : "0";
 
 	my ($data, $err) = collect_json($myself,
-		cmd   => $amdgpu_top->{cmd},
-		file  => $amdgpu_top->{file},
-		no_pc => lc($amdgpu_top->{no_pc} || "") eq "y" ? 1 : 0,
-		debug => $debug);
+		cmd     => $amdgpu_top->{cmd},
+		file    => $amdgpu_top->{file},
+		timeout => $amdgpu_top->{cmd_timeout},
+		no_pc   => lc($amdgpu_top->{no_pc} || "") eq "y" ? 1 : 0,
+		debug   => $debug);
 
 	if($err) {
 		logger("$myself: WARNING: $err; writing missing values instead.");
@@ -458,15 +488,15 @@ sub amdgpu_top_update {
 	# iteration order must be identical to the RRD creation order in _init!
 	my @group_keys = sort keys %{$amdgpu_top->{list}};
 	for(my $k = 0; $k < scalar(@group_keys); $k++) {
-		my @gpu_group = split(', ', $amdgpu_top->{list}->{$group_keys[$k]});
+		my @gpu_group = split(/\s*,\s*/, $amdgpu_top->{list}->{$group_keys[$k]});
 		for(my $n = 0; $n < scalar(@gpu_group) && $n < $max_number_of_gpus; $n++) {
 			# NOTE: do not use trim() here - Monitorix' trim() returns an
 			# empty string for the (valid) device index "0".
 			my $idx = defined($gpu_group[$n]) ? $gpu_group[$n] : "";
 			$idx =~ s/^\s+//;
 			$idx =~ s/\s+$//;
-			$idx =~ s/^\"//;
-			$idx =~ s/\"$//;
+			$idx =~ s/^["']//;
+			$idx =~ s/["']$//;
 
 			my $vals;
 			if($idx =~ /^\d+$/) {
@@ -519,7 +549,9 @@ sub collect_info {
 	my ($bin) = split(/\s+/, $cmd);
 	$bin = "amdgpu_top" unless $bin;
 
-	my ($data, $err) = collect_json("amdgpu_top_cgi", cmd => "$bin -J --dump");
+	my ($data, $err) = collect_json("amdgpu_top_cgi",
+		cmd     => "$bin -J --dump",
+		timeout => $config->{amdgpu_top}->{cmd_timeout} || 30);
 	return () if($err || ref($data) ne "HASH");
 
 	my @lines;
@@ -541,7 +573,8 @@ sub collect_info {
 		my $vram_sz = $val->("VRAM Size");
 		$vram_sz = sprintf("%d MiB", $vram_sz / 1048576) if defined($vram_sz) && $vram_sz =~ /^\d+$/;
 
-		push(@lines, sprintf("GPU %d: %s (%s, %s, %s)", $i,
+		my $label = amdgpu_top_dev_label($config, $i);
+		push(@lines, sprintf("%s: %s (%s, %s, %s)", $label,
 			$val->("DeviceName") // "?",
 			$val->("ASIC Name")  // "?",
 			$val->("GPU Type")   // "?",
@@ -647,9 +680,11 @@ sub amdgpu_top_cgi {
 			["gm_p_sock",  "GM Socket"],
 		]},
 		{ vl => "MiB", fmt => "%8.0lf", metrics => [
+			# capacity backdrops: the larger total (GTT, host memory) is
+			# drawn first so the smaller one (VRAM) stays visible on top
+			["gtt_tot",    "GTT total",  "AREA:#E6E6F6"],
 			["vram_tot",   "VRAM total", "AREA:#C8C8C8"],
 			["vram_use",   "VRAM used",  "LINE2"],
-			["gtt_tot",    "GTT total",  "AREA:#E6E6F6"],
 			["gtt_use",    "GTT used",   "LINE2"],
 		]},
 		{ vl => "Percent (%)", fmt => "%5.1lf%%", metrics => [
@@ -726,7 +761,7 @@ sub amdgpu_top_cgi {
 				push(@panel_list, $p + 0);
 			}
 			elsif($p ne "") {
-				logger("amdgpu_top_cgi: WARNING: ignoring invalid panel number '$p' in 'panels' option.");
+				push(@output, "ERROR: while parsing 'panels' option: ignoring invalid panel number '$p'\n");
 			}
 		}
 	}
@@ -770,7 +805,7 @@ sub amdgpu_top_cgi {
 		my @slot_base;
 		my $seen = 0;
 		foreach my $k (sort keys %{$amdgpu_top->{list}}) {
-			my @d = split(', ', $amdgpu_top->{list}->{$k});
+			my @d = split(/\s*,\s*/, $amdgpu_top->{list}->{$k});
 			@d = @d[0 .. $max_number_of_gpus - 1] if(scalar(@d) > $max_number_of_gpus);
 			push(@groups, \@d);
 			push(@slot_base, $seen);
@@ -865,8 +900,14 @@ sub amdgpu_top_cgi {
 
 	$e = 0;
 	foreach my $k (sort keys %{$amdgpu_top->{list}}) {
-		my @d = split(', ', $amdgpu_top->{list}->{$k});
+		my @d = split(/\s*,\s*/, $amdgpu_top->{list}->{$k});
 		@d = @d[0 .. $max_number_of_gpus - 1] if(scalar(@d) > $max_number_of_gpus);
+
+		# multihost imagetag selects images per group, like the built-in
+		# modules do: $e2 is the 1-based group number (\b anchors the match
+		# so group 1 does not also select group 10)
+		$e2 = $e + 1;
+		my $show_group = $title || ($silent =~ /imagetag/ && $graph =~ /amdgpu_top$e2\b/);
 		if($title) {
 			push(@output, main::graph_header($title, 2));
 			push(@output, "    <tr>\n");
@@ -961,7 +1002,8 @@ sub amdgpu_top_cgi {
 			($width, $height) = split('x', $config->{graph_size}->{$is_main ? 'main' : 'small'});
 			# make room for long legends (one line per DS and device)
 			my $legend_lines = scalar(@d) * scalar(@{$panel->{metrics}});
-			$height += ($is_main ? 13 : 10) * ($legend_lines - 1) if($legend_lines > 1);
+			my $legend_extra = ($legend_lines > 1) ? ($is_main ? 13 : 10) * ($legend_lines - 1) : 0;
+			$height += $legend_extra if($legend_extra);
 			if($silent =~ /imagetag/) {
 				($width, $height) = split('x', $config->{graph_size}->{remote}) if $silent eq "imagetag";
 				($width, $height) = split('x', $config->{graph_size}->{main}) if $silent eq "imagetagbig";
@@ -995,6 +1037,8 @@ sub amdgpu_top_cgi {
 
 			if(lc($config->{enable_zoom}) eq "y") {
 				($width, $height) = split('x', $config->{graph_size}->{zoom});
+				# scale the legend margin with the zoom factor, too
+				$height += $legend_extra * $zoom if($legend_extra);
 				$picz = $rrd{$version}->("$IMG_DIR" . $IMGz[$e * $number_of_visible_plots + $n_plot],
 					"--title=$plot_title  ($tf->{nwhen}$tf->{twhen})",
 					"--start=-$tf->{nwhen}$tf->{twhen}",
@@ -1016,8 +1060,7 @@ sub amdgpu_top_cgi {
 				push(@output, "ERROR: while graphing $IMG_DIR" . $IMGz[$e * $number_of_visible_plots + $n_plot] . ": $err\n") if $err;
 			}
 
-			$e2 = $e + $pn;
-			if($title || ($silent =~ /imagetag/ && $graph =~ /amdgpu_top$e2/)) {
+			if($show_group) {
 				if(lc($config->{enable_zoom}) eq "y") {
 					if(lc($config->{disable_javascript_void}) eq "y") {
 						push(@output, "      " . picz_a_element(config => $config, IMGz => $IMGz[$e * $number_of_visible_plots + $n_plot], IMG => $IMG[$e * $number_of_visible_plots + $n_plot]) . "\n");
@@ -1068,8 +1111,8 @@ sub amdgpu_top_dev_label {
 	my $idx = defined($entry) ? $entry : "";
 	$idx =~ s/^\s+//;
 	$idx =~ s/\s+$//;
-	$idx =~ s/^\"//;
-	$idx =~ s/\"$//;
+	$idx =~ s/^["']//;
+	$idx =~ s/["']$//;
 
 	if(defined($config->{amdgpu_top}->{map}->{$idx})) {
 		return $config->{amdgpu_top}->{map}->{$idx};
