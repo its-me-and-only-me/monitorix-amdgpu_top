@@ -78,7 +78,7 @@ Alle 10 Panels (`/var/lib/monitorix/www/imgs/amdgpu_top0{0..9}.1day.png`) geprü
   gfx1151 real `{"unit":"mV","value":0}`
 - Zweispaltenlayout im gelieferten HTML bestätigt (Panels 1–5 links, 6–10 rechts)
 
-## RRD-Lese­semantik (wichtiges Test-Nebenwissen)
+## RRD-Lesesemantik (wichtiges Test-Nebenwissen)
 
 - Ein GAUGE-Update mit Timestamp == `last_update` (Create und Update in derselben Sekunde)
   wird von rrdtool **still ignoriert** (nur `last_update` läuft).
@@ -95,3 +95,22 @@ Alle 10 Panels (`/var/lib/monitorix/www/imgs/amdgpu_top0{0..9}.1day.png`) geprü
 ./t_update.pl              # ~3 min (wartet auf Minuten-Grenzen)
 ./t_cgi.pl                 # ~10 s  (auch: --text, --when 1week)
 ```
+
+---
+
+## Nachlauf 2026-11-10 — Review-Fixes (v1.3)
+
+Verifikation der Review-Behobungen (Umgebung wie oben):
+
+| Harness | Ergebnis |
+|---|---|
+| `./parse_test.pl --file samples/*.json` + Live | OK — testet jetzt `amdgpu_top.pm` selbst (53/36/25 von 79 Werten definiert wie zuvor) |
+| `./t_robust.pl` | ALL CHECKS PASSED — 11 Szenarien inkl. neuem `g)` hängendes Kommando (`sleep 30` nach 2 s `cmd_timeout` abgeschossen, Update nach 4 s zurück, alle DS `U`) |
+| `./t_update.pl` | ALL CHECKS PASSED (Exaktwerte, Browser-Fall, corrupted-cmd) |
+| `./t_cgi.pl` (+ `--text`) | ALL CHECKS PASSED — 7 Panels, 14 PNGs, Text 24 Zeilen + Info-Block |
+| Live-RRD | Temperatur-DS per `rrdtool tune --minimum <ds>:U` migriert (History erhalten); `t_pipe`/Power-DS behalten Min 0 |
+| Daemon + E2E | Neustart sauber, `curl … graph=amdgpu_top … when=day` → 14 Bildreferenzen, 0 ERROR |
+
+Nebenbefund behoben: Alle vier Harnesses luden wegen `use lib`-Reihenfolge die
+**installierte** statt der Repo-Kopie von `amdgpu_top.pm` — Reihenfolge getauscht,
+Repo gewinnt jetzt.

@@ -1,9 +1,10 @@
 # Monitorix-Modul `amdgpu_top`
 
-Monitorix-Modul, das **alle Messwerte der JSON-Ausgabe des
-[`amdgpu_top`](https://github.com/Umio-Yasuno/amdgpu_top)-Tools** (eine Zeile bei
-`amdgpu_top -J -n 1`) erfasst und in bis zu 10 Panels (Graph-Modus, per
-`panels`-Option auswählbar) bzw. einer
+Monitorix-Modul, das die **vollständige Menge der numerischen Zeitreihen aus der
+JSON-Ausgabe des [`amdgpu_top`](https://github.com/Umio-Yasuno/amdgpu_top)-Tools**
+(`amdgpu_top -J -n 1`) erfasst — 79 Datenquellen pro Gerät, die wenigen bewusst
+ausgenommenen Felder stehen unter „Bewusst nicht abgebildet" — und in bis zu 10
+Panels (Graph-Modus, per `panels`-Option auswählbar) bzw. einer
 Wertetabelle + Geräteinfo-Block (Text-Modus) darstellt — inklusive GRBM-/GRBM2-
 Engine-Auslastung, `gpu_metrics`-Telemetrie und fdinfo-Nutzungsdaten, die das
 eingebaute `amdgpu`-Sysfs-Modul nicht bietet.
@@ -38,14 +39,16 @@ der CGI-Lauf (User `nobody`) braucht den Aufruf nur für den optionalen Info-Blo
 | Option | Default | Bedeutung |
 |---|---|---|
 | `<list>` | – | Gruppen → Gerätelisten, Index in die JSON-`devices[]`, z. B. `0 = 0` bzw. `0 = 0, 1` für zwei Geräte in einer Gruppe. |
-| `cmd` | `amdgpu_top -J -n 1` | Aufruf im One-Shot-Modus (terminiert selbst nach ~1 s, kein `timeout`-Wrapper nötig). Absoluter Pfad möglich. |
+| `cmd` | `amdgpu_top -J -n 1` | Aufruf im One-Shot-Modus (terminiert normalerweise nach ~1 s; abgesichert durch `cmd_timeout`). Absoluter Pfad möglich. |
 | `no_pc` | `n` | `y` → zusätzlich `--no-pc` anhängen (GRBM/GRBM2 entfallen dann in den Quellen und erscheinen als Lücken/0). |
-| `use_nan_for_missing_data` | `y` | `y` → fehlende Sensorwerte als NaN (Lücke im Graph); `n` → als 0. |
+| `use_nan_for_missing_data` | `n` | `y` → fehlende Sensorwerte als NaN (Lücke im Graph); `n` → als 0. Das ausgelieferte Drop-in setzt `y`. |
+| `cmd_timeout` | `30` | Harter Timeout (Sekunden) je `amdgpu_top`-Aufruf. Schützt den Monitorix-Update-Loop gegen aufhängende GPU/Treiber (das Tool spricht DRM-Ioctls direkt an und könnte unbegrenzt blockieren). |
 | `panels` | alle 10 | Kommagetrennte Liste sichtbarer Panels (1-basiert). Ausgeblendete Panels werden **nur im WebUI weggelassen** — alle 79 Datenquellen bleiben weiter im RRD erhalten, ein Panel ist ohne Historienverlust reaktivierbar. |
-| `show_current_values` | `y` | Kurzwert-Legende (Current) in den kleinen Panels. |
-| `show_info` | `y` | Statischer Geräte-Info-Block im Textmodus (best-effort via `amdgpu_top -J --dump`). |
+| `show_current_values` | `n` | Kurzwert-Legende (Current) in den kleinen Panels. Das ausgelieferte Drop-in setzt `y`. |
+| `show_info` | `n` | Statischer Geräte-Info-Block im Textmodus (best-effort via `amdgpu_top -J --dump`). Das ausgelieferte Drop-in setzt `y`. |
 | `file` | – | JSON aus Datei lesen statt Kommando (nur für Tests/Dry-Run). |
 | `<map>` | – | Anzeigename je Geräteindex, z. B. `0 = Radeon 8060S`. |
+| `<desc>` | – | Optionale Gruppen-Beschreibung unterhalb der Graphen der Gruppe. |
 | `rigid` / `limit` | – | Monitorix-Standard (`y,u,l` je Panel, Achsengrenzen). |
 
 Panel-Titel kommen aus `<graphs>` (`_amdgpu_top1` … `_amdgpu_top10`), der
@@ -113,7 +116,11 @@ abgleichen, falls sich die Standardreihenfolge geändert hat.
 
 **Achtung Schemaänderungen:** jede Änderung der `@DSPEC`-Liste im Modul erzeugt ein
 neues RRD — das alte wird automatisch nach `amdgpu_top.rrd.bak` gerettet und die
-Historie beginnt neu (Konvention anderer Monitorix-Module).
+Historie beginnt neu (Konvention anderer Monitorix-Module). Temperatur-DS (`t_*`,
+`gm_t_*`) werden mit Minimum `U` angelegt, damit tatsächlich negative Werte erhalten
+bleiben und nicht stillschweigend verworfen werden; alle übrigen DS nutzen Minimum
+`0`. (Vor v1.3 erzeugte RRDs lassen sich ohne Datenverlust migrieren:
+`rrdtool tune amdgpu_top.rrd --minimum <ds>:U` je Temperatur-DS.)
 
 ## Bewusst nicht abgebildet
 
@@ -122,33 +129,62 @@ Historie beginnt neu (Konvention anderer Monitorix-Module).
 - `current_*`- und `average_core_power`-Arrays von `gpu_metrics`
   (Einheit/Aggregation undocumented; bei `cpu_favg/cpu_fmax` und `gm_t_core` wurde die
   Aggregation bewusst definiert, hier nicht)
+- `gpu_metrics` VR-Temperaturen (`temperature_vrgfx` / `temperature_vrmem` /
+  `temperature_vrsoc`) und Mittelwerte für Spannungen/Ströme (`average_*_voltage`,
+  `average_*_current`) — von diesem Treiber/APU nicht geliefert (immer `null`),
+  Dokumentationslage zu Einheiten dünn; bei Bedarf in `@DSPEC` ergänzen
+- `gpu_metrics` `average_dclk1_frequency` / `average_vclk1_frequency` /
+  `average_temperature_core` / `average_temperature_l3` (sekundäre Speicherkanäle
+  bzw. Aggregat-Felder; auf dieser APU `null`)
+- `gpu_metrics` `pcie_link_speed` / `pcie_link_width` (diskrete Linkzustände, keine
+  Lastkurve) und `system_clock_counter` (roher monotoner Zähler)
+- `Sensors` `"Fan Max"` (statischer Grenzwert) und `"Throttle Status"`
+  (undurchsichtige Bitmaske)
 - `xdna_fdinfo` (NPU-Auslastung; eigenes späteres Feature)
 - Pro-PID-fdinfo-Details (dynamische PID-Liste → nur aggregierte `Total fdinfo`-Werte
   plus `proc_count`)
+
+Einige erfasste DS erscheinen bewusst in keinem Panel (`fd_vram`, `fd_gtt`,
+`pcie_lsp`, `cpu_favg/cpu_fmax`, `gm_t_l3`, `gm_p_cpu/gfx/soc`) — sie stehen für
+eigene Graphen zur Verfügung.
 
 ## Hinweis zur DS-Benennung
 
 RRD erlaubt max. 19 Zeichen je DS-Namen; die Suffixe sind entsprechend verkürzt und
 mit den GRBM2-JSON-Keys (Achtung: teils **Doppel-Leerzeichen** im Original) exakt
-abgestimmt. Neue DS daher immer gegen `docs/plan.md` §2.2 und
-`lib/AmdgpuTopParser.pm` prüfen.
+abgestimmt. Neue DS daher immer gegen `docs/plan.md` §2.2 und die `@DSPEC`-Liste in
+`amdgpu_top.pm` prüfen.
 
 ## Tests
 
 ```sh
-./parse_test.pl    # Parser gegen 3 JSON-Samples + Live-Ausgabe
-./t_robust.pl      # Robustheit: kaputtes Tool, Sonderfälle, Schema-Rotation
+./parse_test.pl    # Parser des Moduls selbst: 3 JSON-Samples + Live-Ausgabe
+./t_robust.pl      # Robustheit: kaputtes/hängendes Tool, Sonderfälle, Schema-Rotation
 ./t_update.pl      # Update gegen RRD mit Exaktwertprüfung (~3 min)
 ./t_cgi.pl         # CGI-Funktion: Graph-/Textmodus, day/week
 ```
 
-Ergebnisse protokolliert in `docs/testlog.md`.
+Ergebnisse protokolliert in `docs/testlog.md`. Alle Harnesses laden `amdgpu_top.pm`
+aus dem Repo (niemals die installierte Kopie), testen also immer den Quellcode dieses
+Baums.
+
+## Fehlerbehebung
+
+- `ERROR ... timed out after 30 seconds (GPU or driver unresponsive?)` im
+  Monitorix-Log: `amdgpu_top` hing in einem DRM-Ioctl (z. B. während GPU-Reset). Das
+  Modul hat abgeschossen und `U`-Werte geschrieben; `cmd_timeout` nur erhöhen, wenn
+  das System legitimerweise langsam antwortet.
+- `Can't exec "amdgpu_top"` auf Daemon-stderr (sichtbar in `journalctl -u
+  monitorix`): Binary nicht im `PATH` des Daemons — absoluten Pfad in `cmd` setzen.
+  Child-stderr wird ungefiltert ins Journal durchgereicht.
+- Lücken in Panels: manche Sensorfelder liefern je nach Kernel intermittierend
+  `null` (z. B. `temperature_tctl` auf gfx1151) — mit `use_nan_for_missing_data = y`
+  korrekt als Lücke sichtbar.
 
 ## Dateistruktur
 
 ```
 amdgpu_top.pm                  # das Monitorix-Modul (init/update/cgi, autark)
-lib/AmdgpuTopParser.pm         # standalone Parser ( nur für parse_test.pl)
 config/99-amdgpu_top.conf      # conf.d-Drop-in (installieren!)
 t_update.pl t_cgi.pl t_robust.pl parse_test.pl   # Test-Harnesses
 samples/                       # JSON-Samples (oneshot, nopc, dump)

@@ -274,3 +274,15 @@ Standard-RRD-Fetch-Tabelle (wie amdenergy) **ohne** externen Aufruf, gruppiert n
    `$pn` (rigid/limit, Plot-Titel, `$e2`), PNG-/IMG-Index über Renderposition;
    Spaltensprung nach dem letzten sichtbaren `main`-Panel. `t_cgi.pl` leitet die
    erwartete Panel-/Bildzahl jetzt dynamisch aus der Config ab.
+
+5. **Code-Review-Follow-ups (2026-11-10, externer Review → v1.3):** harter
+   Timeout um alle `amdgpu_top`-Aufrufe (`cmd_timeout`, Default 30 s; kill + `U`
+   statt Daemon-Hang; Robustheitsszenario g), Temperatur-DS mit Min `U`
+   (Live-Migration per `rrdtool tune`), imagetag-IDs auf Gruppen-Konvention
+   (`$e2 = $e + 1`, verankerter Match), Memory-Panel zeichnet GTT-Backdrop zuerst,
+   CGI-Warnung via `@output` statt `logger()`, `<list>` toleriert `0,1` und
+   einfache Quotes, Zoom-Bilder erhalten den Legenden-Zuschlag, Info-Block nutzt
+   `<map>`, `parse_test.pl` testet jetzt das echte Modul (Duplikat
+   `lib/AmdgpuTopParser.pm` entfernt; alle Harnesses laden den Repo-Stand —
+   vorher luden sie durch `use lib`-Reihenfolge die installierte Kopie!), tote
+   Imports entfernt, README-Defaults korrigiert + Doku vervollständigt.
