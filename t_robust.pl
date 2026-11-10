@@ -24,6 +24,7 @@
 #   d)  use_nan_for_missing_data=n: missing sensors stored as 0
 #   e)  two slots "0, 0"       : both slot column blocks byte-identical
 #   f)  foreign-schema RRD     : init rotates to .bak and recreates (79 DS)
+#   g)  hanging command        : cmd_timeout kills it, ALL DS 'U'
 #
 # Exit codes: 0 = all checks passed, 1 = failures (listed)
 #
@@ -31,8 +32,8 @@
 use strict;
 use warnings;
 use FindBin qw($Bin);
-use lib "$Bin";			# amdgpu_top.pm
 use lib "/usr/lib/monitorix";	# Monitorix.pm
+use lib "$Bin";		# amdgpu_top.pm (repo copy wins over any installed one)
 use File::Path qw(make_path remove_tree);
 use RRDs;
 use amdgpu_top;
@@ -311,6 +312,24 @@ print "\n== f) stale RRD with foreign schema -> rotation to .bak ==\n";
 	check("f) new RRD has 79 DS", scalar(@$ds) == 79, scalar(@$ds) . " DS");
 	check("f) rotation logged", $log =~ /rotat|\.bak/i, ($log =~ /([^\n]*(?:rotat|\.bak)[^\n]*)/) ? substr($1, 0, 90) : "not logged (informational only)");
 	check("f) update after rotation works", $values && grep({ $_ ne "U" } @$values) > 50, $values ? scalar(grep({ $_ ne "U" } @$values)) . " defined values" : "none");
+}
+
+# ---------------------------------------------------------------------------
+print "\n== g) hanging command -> cmd_timeout kills it ==\n";
+{
+	my $t0 = time();
+	my ($log, $ds, $values) = run_scenario("g", {
+		list	=> { 0 => "0" },
+		cmd	=> "sleep 30",
+		cmd_timeout => 2,
+		use_nan_for_missing_data => "y",
+	});
+	my $dt = time() - $t0;
+	check("g) no exception", $log !~ /EXCEPTION/);
+	check("g) timeout reported", $log =~ /timed out after 2 seconds/,
+		($log =~ /((?:WARNING|ERROR)[^\n]*timed out[^\n]*)/) ? substr($1, 0, 100) : "not logged");
+	check("g) ALL DS = U", $values && !(grep { $_ ne "U" } @$values));
+	check("g) update returned quickly (killed, did not wait for 'sleep 30')", $dt < 10, "$dt s");
 }
 
 # ---------------------------------------------------------------------------

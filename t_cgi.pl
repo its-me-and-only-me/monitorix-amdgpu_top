@@ -15,8 +15,8 @@
 use strict;
 use warnings;
 use FindBin qw($Bin);
-use lib "$Bin";			# amdgpu_top.pm
 use lib "/usr/lib/monitorix";	# Monitorix.pm
+use lib "$Bin";		# amdgpu_top.pm (repo copy wins over any installed one)
 use Config::General;
 use File::Path qw(make_path);
 use File::Copy;

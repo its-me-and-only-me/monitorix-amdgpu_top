@@ -1,6 +1,8 @@
 #!/usr/bin/perl
 #
-# parse_test.pl - standalone test for lib/AmdgpuTopParser.pm
+# parse_test.pl - parser test for the amdgpu_top MODULE ITSELF
+#                 (calls amdgpu_top::collect_json / ::extract_values,
+#                  so it always tests what ships)
 #
 # Usage:
 #   ./parse_test.pl                 # live: amdgpu_top -J -n 1
@@ -15,8 +17,9 @@
 use strict;
 use warnings;
 use FindBin qw($Bin);
-use lib "$Bin/lib";
-use AmdgpuTopParser qw(collect_json extract_values ds_names);
+use lib "/usr/lib/monitorix";	# Monitorix.pm
+use lib "$Bin";		# amdgpu_top.pm (repo copy wins over any installed one)
+use amdgpu_top;
 use JSON::PP;
 
 my @files;
@@ -55,7 +58,7 @@ my $rc = 0;
 
 foreach my $src (@sources) {
 	print "=" x 72, "\nSource: $src->{desc}\n";
-	my ($data, $err) = collect_json(%$src);
+	my ($data, $err) = amdgpu_top::collect_json("parse_test", %$src);
 	if($err) {
 		print "ERROR: $err\n";
 		$rc = 1;
@@ -74,14 +77,14 @@ foreach my $src (@sources) {
 
 	foreach my $i (0 .. $ndev - 1) {
 		my $dev = $data->{devices}[$i];
-		my $vals = extract_values($dev);
+		my $vals = amdgpu_top::extract_values($dev);
 		if(!$vals) {
 			print "ERROR: device $i is not a hash\n";
 			$rc = 1;
 			next;
 		}
 
-		my @names = ds_names();
+		my @names = amdgpu_top::ds_names();
 		my $defined_cnt = grep { defined($vals->{$_}) } @names;
 
 		if($as_json) {
