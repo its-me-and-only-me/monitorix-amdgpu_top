@@ -778,8 +778,14 @@ sub amdgpu_top_cgi {
 			push(@output, "    <tr>\n");
 			push(@output, "    <td>\n");
 		}
+		# the upstream CGI only defines tf->{res,tc,tb,ts} for the
+		# day/week/month/year views; for the 'when=<n>hour' views that the
+		# CGI's regex also accepts, render 5-minute rows over <n> hours
+		if(!$tf->{res}) {
+			$tf = { %$tf, res => 300, tc => 'h', tb => $tf->{nwhen}, ts => 12 };
+		}
 		my (undef, undef, undef, $data) = RRDs::fetch("$rrd",
-		"--resolution=$tf->{res}",
+		"--resolution=" . $tf->{res},
 		"--start=-$tf->{nwhen}$tf->{twhen}",
 		"AVERAGE");
 		$err = RRDs::error;

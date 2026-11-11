@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.4.3 — 2026-11-11
+
+- **Text mode for `when=<n>hour` views:** the CGI's `when` regex accepts any
+  numeric prefix (`4hour`…), but it only sets `tf->{res,tc,tb,ts}` for
+  day/week/month/year — the text table then failed with an empty
+  `--resolution=`. The module falls back to 5-minute rows over `<n>` hours
+  (the built-in modules share this latent limitation).
+- Screenshots in `docs/screenshots/` refreshed: the graph view now shows the
+  livelier last-4-hours timeframe (`when=4hour`).
+
 ## v1.4.2 — 2026-11-11
 
 - **Memory panel: capacity totals are dashed reference lines now.** The

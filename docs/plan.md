@@ -322,3 +322,11 @@ Standard-RRD-Fetch-Tabelle (wie amdenergy) **ohne** externen Aufruf, gruppiert n
    (`LINE1` + `:dashes`, Stil-Regex erweitert); Theme-Erkennung aus 7
    entfällt wieder. Verifikation: t_cgi ALL PASSED, HTTP black+white
    fehlerfrei, Screenshot: gestrichelte Referenzlinien auf schwarzem Canvas.
+
+9. **Text-Modus für `when=<n>hour` (→ v1.4.3):** Das CGI akzeptiert numeric
+   prefixes (`4hour`), setzt `tf->{res,tc,tb,ts}` aber nur für
+   day/week/month/year → fetch mit leerem `--resolution=` fehlschlug
+   (latente Grenze auch der Built-in-Module). Fallback im Modul: 300-s-Rows
+   über `<n>` Stunden. Verifikation: HTTP `when=4hour` + `iface_mode=text`
+   → 0 ERROR, 48 Zeilen + Info-Block; `t_cgi --text` unverändert grün. Neue
+   README-Screenshots aus dem 4-h-Fenster (graphs-4hour.png, text-mode.png).

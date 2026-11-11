@@ -163,3 +163,13 @@ suffix; style regex extended accordingly, theme-detection of v1.4.1 removed
 as moot). Verified: `t_cgi` ALL PASSED; HTTP black+white je 0 ERROR;
 Screenshot: schwarzes Canvas, GTT total als dezente gestrichelte Linie auf
 122880, VRAM total als gestrichelte Linie nahe 0.
+
+### v1.4.3: Text-Modus `when=4hour` + neue Screenshots
+
+`when=4hour` wird vom CGI-Regex akzeptiert, aber `tf->{res,tc,tb,ts}` bleiben
+undef → Text-fetch-Fehler; Modul-Fallback auf 300-s-Raster. Verifikation:
+`iface_mode=text` (conf temporär umgestellt, danach zurückgesetzt): HTTP
+`when=4hour` 0 ERROR, 48 Zeilen + Info-Block. Screenshots neu erzeugt
+(chromium headless, white theme): `graphs-4hour.png` (1660x1932) und
+`text-mode.png` (1200x1254), `graphs-day.png` entfernt; README-Tabelle
+aktualisiert. Beide `t_cgi`-Varianten ALL PASSED.
