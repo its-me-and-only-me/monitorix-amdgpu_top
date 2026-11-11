@@ -114,3 +114,32 @@ Verifikation der Review-Behobungen (Umgebung wie oben):
 Nebenbefund behoben: Alle vier Harnesses luden wegen `use lib`-Reihenfolge die
 **installierte** statt der Repo-Kopie von `amdgpu_top.pm` — Reihenfolge getauscht,
 Repo gewinnt jetzt.
+
+---
+
+## Nachlauf 2026-11-11 — Upstream-Feedback mikaku (v1.4)
+
+Änderungen sind **ausschließlich CGI-Pfad** (Zeilen ≥ 646: Versionsvergleich
+per `version->declare`, AREA-Regex, `graph_colors`-Guard, Spalten-Balancing);
+Daemon-/Update-Pfad unverändert gegenüber v1.3.
+
+| Harness | Ergebnis |
+|---|---|
+| `./t_cgi.pl` (+ `--text`) | ALL CHECKS PASSED (14 PNGs, 0 Fehler) |
+| `./t_robust.pl` | ALL CHECKS PASSED |
+| `./t_update.pl` | ALL CHECKS PASSED — **aber 2 Vorläufe mit Timing-Flakiness** (Zeilen vorletztes Bucket/Live-Wert in erwartetem Bucket nicht lesbar; exakte Werte alle OK). Update-Pfad code-seitig unverändert → Laufzeit-Umwelt (Minuten-Grenzen-Kollision mit Daemon-eigenem `amdgpu_top`-Aufruf), bei sauberem Wiederholungslauf grün. |
+| Live HTTP day+week | je 7 Bildreferenzen, 0 ERROR; Spalten-Delta 3 px (links 1656 / rechts 1659) |
+| Visuell | Screenshot: Spalten bündig; Memory-Panel zeigt VRAM/GTT-AREA-Flächen |
+
+Nebenbefunde behoben:
+
+1. **AREA-Regex-Bug (latent seit v1.0):** Regex `/^(AREA|LINE\d)(#.*)?$/`
+   passend zur Schreibweise `AREA:#farbe` in `@PANELS` nie → Capacity-
+   Backdrops waren still auf LINE2 degradiert. Jetzt `/^(AREA|LINE\d)(?::?(#.*))?$/`.
+2. **`graph_colors`-Guard:** Beim CLI-Aufruf `monitorix.cgi "mode=…"` ohne
+   CGI-Umgebung (und bei Index-Generierung) ist `graph_colors` stellenweise
+   undef; die Inline-Deref in der Built-in-Form überlebt das, die
+   @picargs-Form crashte. Guard `|| []` macht beide Pfade robust.
+3. CLI-Screenshot-Test rendert schwarzes Theme (`theme_color = black` greift
+   ohne `color=`-Env) und überschreibt `www/imgs` — nach CLI-Tests immer per
+   HTTP-curl neu erzeugen.

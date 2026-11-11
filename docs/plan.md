@@ -286,3 +286,25 @@ Standard-RRD-Fetch-Tabelle (wie amdenergy) **ohne** externen Aufruf, gruppiert n
    `lib/AmdgpuTopParser.pm` entfernt; alle Harnesses laden den Repo-Stand —
    vorher luden sie durch `use lib`-Reihenfolge die installierte Kopie!), tote
    Imports entfernt, README-Defaults korrigiert + Doku vervollständigt.
+
+6. **Upstream-Feedback mikaku (Issue #489, 2026-11-11 → v1.4):**
+   a) **RRDtool-Versionsvergleich nach #488:** `$RRDs::VERSION` wird jetzt wie in
+   allen Built-in-Modulen seit 3.16.x über `version->declare(...)->numify`
+   verglichen (zweistellige Versionen wie 1.10 wurden numerisch falsch
+   sortiert und hätten das alte `graph()`-Interface gewählt). Upstream-Idiom
+   inklusive Weglassens von `use version;` übernommen.
+   b) **Spalten-Balancing (graue Ränder):** Nach dem Zeichnen aller Panels
+   werden die Bildhöhen aus dem `graphv`-Hash (`image_height`, un-gezoomt)
+   summiert; ist die rechte (kleine) Spalte >10 px höher, zeichnet das Modul
+   die drei Main-Graphen mit `--height + delta/3` neu (PNG-Höhe skaliert exakt
+   linear mit `--zoom`, verifiziert). HTML-Fragmente werden erst nach dem
+   Redraw ausgegeben; linke Zelle `td-valign-top`. Restdifferenz im Live-Test:
+   3 px.
+   c) **Latenter Bug AREA-Regex:** Regex erwartete `AREA#farbe`, die
+   Panel-Definitionen nutzen `AREA:#farbe` → VRAM/GTT-Kapazitäts-Backdrops
+   waren seit jeher still auf LINE2 zurückgefallen. Regex auf
+   `/^(AREA|LINE\d)(?::?(#.*))?$/` korrigiert; Backdrops jetzt sichtbar.
+   d) **`graph_colors`-Guard:** `@{ $colors->{graph_colors} || [] }` —
+   einige CGI-Pfade (Index-Generierung) reaching das Zeichnen mit
+   undefiniertem `graph_colors`; die Liste der Built-in-Module hat dieselbe
+   latente Gefahr, das Modul ist jetzt robust dagegen.

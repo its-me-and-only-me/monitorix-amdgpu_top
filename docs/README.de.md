@@ -68,6 +68,10 @@ Rechts (klein, mit Kurzwert-Legende bei `show_current_values = y`):
 Das Memory-Panel zeichnet die Gesamtgrößen (VRAM/GTT total) als AREA-Hintergrund
 und die Nutzlasten als Linien darüber.
 
+Das Modul balanciert beide Spalten automatisch: Nach dem Zeichnen werden die
+Graphen der linken Spalte so neu gerendert, dass beide Spalten auf der gleichen
+Pixelhöhe enden (keine grauen Ränder mehr).
+
 ### Ausgeblendete Panels (`panels`-Option)
 
 Im mitgelieferten Drop-in sind **Panels 8–10 deaktiviert** (`panels = 1, 2, 3, 4, 5,

@@ -646,8 +646,8 @@ sub amdgpu_top_cgi {
 
 	my $show_current_values = lc($amdgpu_top->{show_current_values} || "") eq "y" ? 1 : 0;
 
-	$version = "old" if $RRDs::VERSION < 1.3;
-	push(@full_size_mode, "--full-size-mode") if $RRDs::VERSION > 1.3;
+	$version = "old" if version->declare($RRDs::VERSION)->numify < version->declare(1.3)->numify;
+	push(@full_size_mode, "--full-size-mode") if version->declare($RRDs::VERSION)->numify > version->declare(1.3)->numify;
 	my $rrd = $config->{base_lib} . $package . ".rrd";
 	my $title = $config->{graph_title}->{$package};
 	my $IMG_DIR = $config->{base_dir} . "/" . $config->{imgs_dir};
@@ -911,14 +911,18 @@ sub amdgpu_top_cgi {
 		if($title) {
 			push(@output, main::graph_header($title, 2));
 			push(@output, "    <tr>\n");
-			push(@output, "    <td>\n");
+			push(@output, "    <td class='td-valign-top'>\n");
 		}
+
+		# Balance the two columns: the left one holds the main-size
+		# panels, the right one the small panels. After drawing, the
+		# measured image heights decide how much taller the main graphs
+		# must be (see after the drawing loop).
+		my @png_h;
+		my @main_args;
+		my @frag;
 		for($n_plot = 0; $n_plot < $number_of_visible_plots; $n_plot++) {
 			my $pn = $panel_list[$n_plot];	# original 1-based panel number
-			if($title && $n_plot == $left_column_plots) {
-				push(@output, "    </td>\n");
-				push(@output, "    <td class='td-valign-top'>\n");
-			}
 
 			my $panel = $PANELS[$pn - 1];
 			my $fmt = $panel->{fmt};
@@ -954,9 +958,9 @@ sub amdgpu_top_cgi {
 					$allvalues .= $vname . ",UN,0,1,IF";
 					push(@CDEF, "CDEF:" . $tname . "=" . $vname . ($temp_f ? ",9,*,5,/,32,+" : ""));
 
-					# draw style and color
+					# draw style and color: 'AREA:#rrggbb' / 'LINE\d[:#rrggbb]'
 					my ($kind, $col);
-					if(defined($style) && $style =~ /^(AREA|LINE\d)(#.*)?$/) {
+					if(defined($style) && $style =~ /^(AREA|LINE\d)(?::?(#.*))?$/) {
 						$kind = $1;
 						$col = $2 // $LC[($n2 + $n * 3) % scalar(@LC)];
 					}
@@ -1016,7 +1020,7 @@ sub amdgpu_top_cgi {
 			my $plot_title = $config->{graphs}->{'_amdgpu_top' . $pn};
 			$plot_title = "Panel " . $pn unless defined($plot_title);
 
-			$pic = $rrd{$version}->("$IMG_DIR" . $IMG[$e * $number_of_visible_plots + $n_plot],
+			my @picargs = ("$IMG_DIR" . $IMG[$e * $number_of_visible_plots + $n_plot],
 				"--title=$plot_title ($tf->{nwhen}$tf->{twhen})",
 				"--start=-$tf->{nwhen}$tf->{twhen}",
 				"--imgformat=$imgfmt_uc",
@@ -1028,12 +1032,18 @@ sub amdgpu_top_cgi {
 				$global_zoom,
 				@{$cgi->{version12}},
 				$is_main ? () : @{$cgi->{version12_small}},
-				@{$colors->{graph_colors}},
+				@{ $colors->{graph_colors} || [] },
 				@def,
 				@CDEF,
 				@tmp);
+			$pic = $rrd{$version}->(@picargs);
 			$err = RRDs::error;
 			push(@output, "ERROR: while graphing $IMG_DIR" . $IMG[$e * $number_of_visible_plots + $n_plot] . ": $err\n") if $err;
+
+			# remember rendered height (graphv) and the arguments of the
+			# main graphs for the possible column-balancing redraw below
+			$png_h[$n_plot] = (ref($pic) eq "HASH") ? $pic->{image_height} : undef;
+			$main_args[$n_plot] = \@picargs if($is_main && $title);
 
 			if(lc($config->{enable_zoom}) eq "y") {
 				($width, $height) = split('x', $config->{graph_size}->{zoom});
@@ -1052,7 +1062,7 @@ sub amdgpu_top_cgi {
 					$global_zoom,
 					@{$cgi->{version12}},
 					$is_main ? () : @{$cgi->{version12_small}},
-					@{$colors->{graph_colors}},
+					@{ $colors->{graph_colors} || [] },
 					@def,
 					@CDEF,
 					@tmpz);
@@ -1060,10 +1070,12 @@ sub amdgpu_top_cgi {
 				push(@output, "ERROR: while graphing $IMG_DIR" . $IMGz[$e * $number_of_visible_plots + $n_plot] . ": $err\n") if $err;
 			}
 
+			# pre-build this panel's HTML fragment (emitted below,
+			# after the possible column-balancing redraw)
 			if($show_group) {
 				if(lc($config->{enable_zoom}) eq "y") {
 					if(lc($config->{disable_javascript_void}) eq "y") {
-						push(@output, "      " . picz_a_element(config => $config, IMGz => $IMGz[$e * $number_of_visible_plots + $n_plot], IMG => $IMG[$e * $number_of_visible_plots + $n_plot]) . "\n");
+						$frag[$n_plot] = "      " . picz_a_element(config => $config, IMGz => $IMGz[$e * $number_of_visible_plots + $n_plot], IMG => $IMG[$e * $number_of_visible_plots + $n_plot]) . "\n";
 					}
 					else {
 						if($version eq "new") {
@@ -1074,13 +1086,42 @@ sub amdgpu_top_cgi {
 							$picz_width = $width + 115;
 							$picz_height = $height + 100;
 						}
-						push(@output, "      " . picz_js_a_element(width => $picz_width, height => $picz_height, config => $config, IMGz => $IMGz[$e * $number_of_visible_plots + $n_plot], IMG => $IMG[$e * $number_of_visible_plots + $n_plot]) . "\n");
+						$frag[$n_plot] = "      " . picz_js_a_element(width => $picz_width, height => $picz_height, config => $config, IMGz => $IMGz[$e * $number_of_visible_plots + $n_plot], IMG => $IMG[$e * $number_of_visible_plots + $n_plot]) . "\n";
 					}
 				}
 				else {
-					push(@output, "      " . img_element(config => $config, IMG => $IMG[$e * $number_of_visible_plots + $n_plot]) . "\n");
+					$frag[$n_plot] = "      " . img_element(config => $config, IMG => $IMG[$e * $number_of_visible_plots + $n_plot]) . "\n";
 				}
 			}
+		}
+
+		# Column balancing: if the right column (small panels) ended up
+		# taller than the left one (main panels), redraw the main graphs
+		# proportionally taller. RRDtool scales --height exactly by
+		# --zoom, so this closes the grey margin below the left column
+		# down to a few pixels.
+		if($title && $version eq "new" && $left_column_plots && $left_column_plots < $number_of_visible_plots) {
+			my ($sumL, $sumR, $ok) = (0, 0, 1);
+			foreach my $i (0 .. $number_of_visible_plots - 1) {
+				if(!defined($png_h[$i])) { $ok = 0; last; }
+				$i < $left_column_plots ? ($sumL += $png_h[$i]) : ($sumR += $png_h[$i]);
+			}
+			if($ok && ($sumR - $sumL) > 10) {
+				# graphv's image_height is the unzoomed one, and --height is
+				# in the same unzoomed pixel unit, so no zoom correction here
+				my $add = int(($sumR - $sumL) / $left_column_plots + 0.5);
+				foreach my $i (grep { defined($main_args[$_]) } 0 .. $left_column_plots - 1) {
+					$rrd{'new'}->(map { /^--height=(\d+)$/ ? '--height=' . ($1 + $add) : $_ } @{$main_args[$i]});
+				}
+			}
+		}
+
+		for($n_plot = 0; $n_plot < $number_of_visible_plots; $n_plot++) {
+			if($title && $n_plot == $left_column_plots) {
+				push(@output, "    </td>\n");
+				push(@output, "    <td class='td-valign-top'>\n");
+			}
+			push(@output, $frag[$n_plot]) if(defined($frag[$n_plot]));
 		}
 
 		if($title) {

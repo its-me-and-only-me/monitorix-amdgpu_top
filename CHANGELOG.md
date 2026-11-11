@@ -1,5 +1,27 @@
 # Changelog
 
+## v1.4 — 2026-11-11
+
+Follow-ups to the upstream feedback (mikaku/Monitorix issue #489):
+
+- **RRDtool version comparison (issue #488):** the CGI now compares
+  `$RRDs::VERSION` via `version->declare(...)->numify`, exactly like the
+  built-in modules since 3.16.x. The previous numeric comparison broke on
+  two-digit versions (RRDtool 1.10 would have selected the ancient
+  `graph()` interface and lost `--full-size-mode`).
+- **Column balancing:** the two table columns (3 main-size graphs left,
+  small graphs right) are now measured after drawing and the main graphs
+  are redrawn so both columns end at the same height — the grey margins
+  above/below the left column are gone. The left cell is top-aligned
+  (`td-valign-top`) as well.
+- **Memory panel backdrops really drawn:** the style regex expected
+  `AREA#color` but the panel definitions use `AREA:#color`, so the VRAM/GTT
+  capacity backdrops had silently degraded to normal lines since the
+  beginning. Fixed — both capacity areas are visible now.
+- **Robustness:** the theme colour list is guarded (`|| []`) so a caller
+  that hasn't initialised `graph_colors` (e.g. early index generation) no
+  longer takes down the whole module render.
+
 ## v1.3 — 2026-11-10
 
 Code review follow-ups (see `docs/testlog.md` for the verification runs):

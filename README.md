@@ -75,6 +75,9 @@ Right column (small, short current-value legend with `show_current_values = y`):
 The memory panel draws the total sizes (VRAM/GTT total) as AREA backgrounds with the
 used values as lines on top.
 
+The module balances both columns automatically: after drawing, the main-column graphs
+are re-rendered so that both columns end at the same pixel height (no grey margins).
+
 ### Hiding permanently empty panels (`panels` option)
 
 The shipped drop-in **disables panels 8–10** (`panels = 1, 2, 3, 4, 5, 6, 7`) because
