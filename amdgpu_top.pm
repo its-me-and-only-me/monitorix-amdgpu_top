@@ -646,15 +646,6 @@ sub amdgpu_top_cgi {
 
 	my $show_current_values = lc($amdgpu_top->{show_current_values} || "") eq "y" ? 1 : 0;
 
-	# The capacity backdrops of the Memory panel have light default colors
-	# that look right on a white canvas but bury a dark theme under a white
-	# wall; map them to dark variants when the theme background is dark.
-	my %BDARK = ( "#E6E6F6" => "#33334D", "#C8C8C8" => "#4D4D4D" );
-	my $dark_canvas = 0;
-	if(($colors->{bg_color} || "") =~ /^#?([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})/) {
-		$dark_canvas = ((0.299 * hex($1) + 0.587 * hex($2) + 0.114 * hex($3)) < 128);
-	}
-
 	$version = "old" if version->declare($RRDs::VERSION)->numify < version->declare(1.3)->numify;
 	push(@full_size_mode, "--full-size-mode") if version->declare($RRDs::VERSION)->numify > version->declare(1.3)->numify;
 	my $rrd = $config->{base_lib} . $package . ".rrd";
@@ -691,8 +682,8 @@ sub amdgpu_top_cgi {
 		{ vl => "MiB", fmt => "%8.0lf", metrics => [
 			# capacity backdrops: the larger total (GTT, host memory) is
 			# drawn first so the smaller one (VRAM) stays visible on top
-			["gtt_tot",    "GTT total",  "AREA:#E6E6F6"],
-			["vram_tot",   "VRAM total", "AREA:#C8C8C8"],
+			["gtt_tot",    "GTT total",  "LINE1:#7B7BB4:dashes"],
+			["vram_tot",   "VRAM total", "LINE1:#9A9A9A:dashes"],
 			["vram_use",   "VRAM used",  "LINE2"],
 			["gtt_use",    "GTT used",   "LINE2"],
 		]},
@@ -948,9 +939,8 @@ sub amdgpu_top_cgi {
 			my $ndef = 0;
 			my $multi = scalar(@d) > 1 ? 1 : 0;
 
-			# two rendering passes: AREA backgrounds first (the Memory
-			# panel uses them as capacity backdrops), then all LINE plots,
-			# so no AREA can bury a previously drawn line
+			# two rendering passes: AREAs (background style entries) first,
+			# then all LINE plots, so no AREA can bury a previously drawn line
 			for my $pass (1, 2) {
 			for($n = 0; $n < scalar(@d); $n++) {
 				my $dname = amdgpu_top_dev_label($config, $d[$n]);
@@ -967,12 +957,13 @@ sub amdgpu_top_cgi {
 					$allvalues .= $vname . ",UN,0,1,IF";
 					push(@CDEF, "CDEF:" . $tname . "=" . $vname . ($temp_f ? ",9,*,5,/,32,+" : ""));
 
-					# draw style and color: 'AREA:#rrggbb' / 'LINE\d[:#rrggbb]'
-					my ($kind, $col);
-					if(defined($style) && $style =~ /^(AREA|LINE\d)(?::?(#.*))?$/) {
+					# draw style and color:
+					# 'AREA:#rrggbb' / 'LINE\d[:#rrggbb][:dashes]'
+					my ($kind, $col, $dashstr) = (undef, undef, "");
+					if(defined($style) && $style =~ /^(AREA|LINE\d)(?::?(#.*?))?(?::(dashes))?$/) {
 						$kind = $1;
 						$col = $2 // $LC[($n2 + $n * 3) % scalar(@LC)];
-						$col = $BDARK{$col} if($dark_canvas && $BDARK{$col});
+						$dashstr = $3 ? ":dashes" : "";
 					}
 					else {
 						$kind = $is_main ? "LINE2" : "LINE1";
@@ -987,8 +978,8 @@ sub amdgpu_top_cgi {
 					else {
 						$str = sprintf("%-13s", substr($lbl, 0, 13));
 					}
-					push(@tmp, $kind . ":" . $tname . $col . ":" . $str);
-					push(@tmpz, $kind . ":" . $tname . $col . ":" . $lbl);
+					push(@tmp, $kind . ":" . $tname . $col . ":" . $str . $dashstr);
+					push(@tmpz, $kind . ":" . $tname . $col . ":" . $lbl . $dashstr);
 
 					if($is_main) {
 						push(@tmp, "GPRINT:" . $tname . ":LAST:  Current\\:" . $fmt);

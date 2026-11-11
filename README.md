@@ -72,9 +72,8 @@ Right column (small, short current-value legend with `show_current_values = y`):
 **4. GRBM engines · 5. GRBM2 engines · 6. Temperatures (°C) · 7. Clocks (MHz) ·
 8. Voltage (mV) · 9. Fan speed (%) · 10. Media engine usage (%)**
 
-The memory panel draws the total sizes (VRAM/GTT total) as AREA backgrounds with the
-used values as lines on top; the background colors adapt to the graph theme
-(light colors on light themes, dark variants on the black theme).
+The memory panel shows the total sizes (VRAM/GTT total) as thin dashed reference
+lines with the used values as solid lines on top.
 
 The module balances both columns automatically: after drawing, the main-column graphs
 are re-rendered so that both columns end at the same pixel height (no grey margins).

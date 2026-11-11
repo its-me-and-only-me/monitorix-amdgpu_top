@@ -65,10 +65,8 @@ Rechts (klein, mit Kurzwert-Legende bei `show_current_values = y`):
 **4. GRBM engines · 5. GRBM2 engines · 6. Temperatures (°C) · 7. Clocks (MHz) ·
 8. Voltage (mV) · 9. Fan speed (%) · 10. Media engine usage (%)**
 
-Das Memory-Panel zeichnet die Gesamtgrößen (VRAM/GTT total) als AREA-Hintergrund
-und die Nutzlasten als Linien darüber; die Hintergrundfarben passen sich dem
-Graph-Theme an (helle Farben auf hellen Themes, dunkle Varianten auf dem
-Black-Theme).
+Das Memory-Panel zeigt die Gesamtgrößen (VRAM/GTT total) als dünne gestrichelte
+Referenzlinien, die Nutzlasten als durchgezogene Linien darüber.
 
 Das Modul balanciert beide Spalten automatisch: Nach dem Zeichnen werden die
 Graphen der linken Spalte so neu gerendert, dass beide Spalten auf der gleichen

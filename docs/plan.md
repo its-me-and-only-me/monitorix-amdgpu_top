@@ -315,3 +315,10 @@ Standard-RRD-Fetch-Tabelle (wie amdenergy) **ohne** externen Aufruf, gruppiert n
    die ganze Plotfläche. Backdrop-Farben werden jetzt über die
    Helligkeit von `$colors->{bg_color}` (Theme main_bg) erkannt und im
    dunklen Theme auf #33334D/#4D4D4D gemappt; helles Theme unverändert.
+
+8. **Capacity-Linien statt Flächen (Nutzerfeedback 2026-11-11 → v1.4.2):**
+   Auch das dunkle AREA-Backdrop wirkte als "blauer Block" (GTT total ≈
+   ganze Y-Achse). `gtt_tot`/`vram_tot` jetzt als gestrichelte Linien
+   (`LINE1` + `:dashes`, Stil-Regex erweitert); Theme-Erkennung aus 7
+   entfällt wieder. Verifikation: t_cgi ALL PASSED, HTTP black+white
+   fehlerfrei, Screenshot: gestrichelte Referenzlinien auf schwarzem Canvas.

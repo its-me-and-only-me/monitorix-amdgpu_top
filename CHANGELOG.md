@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.4.2 — 2026-11-11
+
+- **Memory panel: capacity totals are dashed reference lines now.** The
+  filled AREA backdrops (v1.4/v1.4.1) read as a "blue block" covering the
+  plot — GTT total (host memory) spans nearly the whole Y range. VRAM/GTT
+  total are now thin dashed lines (`LINE1` + rrdtool `dashes`) in neutral
+  colors that work on both themes; the module also supports the `dashes`
+  suffix in panel style strings generally. The theme-detection code of
+  v1.4.1 became moot and was removed.
+
 ## v1.4.1 — 2026-11-11
 
 - **Theme-adaptive capacity backdrops:** the Memory panel's VRAM/GTT total

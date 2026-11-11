@@ -153,3 +153,13 @@ white=FFFFFF / black=000000) entscheidet; dunkles Theme → #33334D (GTT) /
 #4D4D4D (VRAM). Verifikation: `t_cgi` ALL PASSED; HTTP `color=black` und
 `color=white` je 0 ERROR; Screenshots: Black-Theme dezenter dunkler
 Hintergrund, White-Theme helles Lavendel-Backdrop wie gehabt.
+
+### Folgebericht Nutzer (v1.4.2): Backdrop-Block → gestrichelte Linien
+
+Black-Theme showed a "dark blue block" (the GTT-total AREA, ~full Y range) —
+user wants a line, not a filled area. Resolution: `gtt_tot`/`vram_tot` are now
+`LINE1:#7B7BB4:dashes` / `LINE1:#9A9A9A:dashes` (rrdtool `dashes` style
+suffix; style regex extended accordingly, theme-detection of v1.4.1 removed
+as moot). Verified: `t_cgi` ALL PASSED; HTTP black+white je 0 ERROR;
+Screenshot: schwarzes Canvas, GTT total als dezente gestrichelte Linie auf
+122880, VRAM total als gestrichelte Linie nahe 0.
