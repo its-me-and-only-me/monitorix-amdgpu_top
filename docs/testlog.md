@@ -143,3 +143,13 @@ Nebenbefunde behoben:
 3. CLI-Screenshot-Test rendert schwarzes Theme (`theme_color = black` greift
    ohne `color=`-Env) und überschreibt `www/imgs` — nach CLI-Tests immer per
    HTTP-curl neu erzeugen.
+
+### Folgebericht Nutzer (v1.4.1): weißer Memory-Graph im Black-Theme
+
+Ursache: die durch den Regex-Fix erstmals wirklich gezeichneten hellen
+Capacity-Backdrops (GTT total = 122880 MiB → fast volle Plotfläche).
+Fix: Helligkeit von `$colors->{bg_color}` (Theme main_bg, immer gesetzt:
+white=FFFFFF / black=000000) entscheidet; dunkles Theme → #33334D (GTT) /
+#4D4D4D (VRAM). Verifikation: `t_cgi` ALL PASSED; HTTP `color=black` und
+`color=white` je 0 ERROR; Screenshots: Black-Theme dezenter dunkler
+Hintergrund, White-Theme helles Lavendel-Backdrop wie gehabt.

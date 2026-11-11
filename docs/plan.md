@@ -308,3 +308,10 @@ Standard-RRD-Fetch-Tabelle (wie amdenergy) **ohne** externen Aufruf, gruppiert n
    einige CGI-Pfade (Index-Generierung) reaching das Zeichnen mit
    undefiniertem `graph_colors`; die Liste der Built-in-Module hat dieselbe
    latente Gefahr, das Modul ist jetzt robust dagegen.
+
+7. **Theme-Backdrops (Nutzerfeedback 2026-11-11 → v1.4.1):** nach dem
+   AREA-Regex-Fix erschien im Black-Theme ein weißer Memory-Graph — die
+   hellen Capacity-Backdrops (#E6E6F6/#C8C8C8) füllen bei GTT=120 GB fast
+   die ganze Plotfläche. Backdrop-Farben werden jetzt über die
+   Helligkeit von `$colors->{bg_color}` (Theme main_bg) erkannt und im
+   dunklen Theme auf #33334D/#4D4D4D gemappt; helles Theme unverändert.

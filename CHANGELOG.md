@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.4.1 — 2026-11-11
+
+- **Theme-adaptive capacity backdrops:** the Memory panel's VRAM/GTT total
+  AREA colors are light by design — on the **black theme** the restored
+  backdrops (see v1.4) buried the graph under a white wall. They are now
+  mapped to dark variants (`#33334D` GTT, `#4D4D4D` VRAM) whenever the
+  theme background is dark, and stay light on light themes.
+
 ## v1.4 — 2026-11-11
 
 Follow-ups to the upstream feedback (mikaku/Monitorix issue #489):

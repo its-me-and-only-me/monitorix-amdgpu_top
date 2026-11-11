@@ -646,6 +646,15 @@ sub amdgpu_top_cgi {
 
 	my $show_current_values = lc($amdgpu_top->{show_current_values} || "") eq "y" ? 1 : 0;
 
+	# The capacity backdrops of the Memory panel have light default colors
+	# that look right on a white canvas but bury a dark theme under a white
+	# wall; map them to dark variants when the theme background is dark.
+	my %BDARK = ( "#E6E6F6" => "#33334D", "#C8C8C8" => "#4D4D4D" );
+	my $dark_canvas = 0;
+	if(($colors->{bg_color} || "") =~ /^#?([0-9a-fA-F]{2})([0-9a-fA-F]{2})([0-9a-fA-F]{2})/) {
+		$dark_canvas = ((0.299 * hex($1) + 0.587 * hex($2) + 0.114 * hex($3)) < 128);
+	}
+
 	$version = "old" if version->declare($RRDs::VERSION)->numify < version->declare(1.3)->numify;
 	push(@full_size_mode, "--full-size-mode") if version->declare($RRDs::VERSION)->numify > version->declare(1.3)->numify;
 	my $rrd = $config->{base_lib} . $package . ".rrd";
@@ -963,6 +972,7 @@ sub amdgpu_top_cgi {
 					if(defined($style) && $style =~ /^(AREA|LINE\d)(?::?(#.*))?$/) {
 						$kind = $1;
 						$col = $2 // $LC[($n2 + $n * 3) % scalar(@LC)];
+						$col = $BDARK{$col} if($dark_canvas && $BDARK{$col});
 					}
 					else {
 						$kind = $is_main ? "LINE2" : "LINE1";
