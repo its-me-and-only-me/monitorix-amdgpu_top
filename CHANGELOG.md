@@ -8,7 +8,8 @@
   `--resolution=`. The module falls back to 5-minute rows over `<n>` hours
   (the built-in modules share this latent limitation).
 - Screenshots in `docs/screenshots/` refreshed: the graph view now shows the
-  livelier last-4-hours timeframe (`when=4hour`).
+  livelier last-4-hours timeframe (`when=4hour`), as dark- and light-theme
+  variants (`graphs-4hour-dark.png` / `graphs-4hour-light.png`).
 
 ## v1.4.2 — 2026-11-11
 

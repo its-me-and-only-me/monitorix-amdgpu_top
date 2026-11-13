@@ -14,9 +14,13 @@ Tested with Monitorix 3.16.0, Perl ≥ 5.36 (core modules only: `JSON::PP`, `RRD
 `amdgpu_top` v0.10.5 and a Radeon 8060S (gfx1151 / Strix Halo APU). Supports multiple
 devices and groups (up to 8 devices per group).
 
-| Graph view (last 4 hours) | Text view |
+| Graph view (last 4 hours) — dark theme | Graph view — light theme |
 |---|---|
-| ![graphs](docs/screenshots/graphs-4hour.png) | ![text](docs/screenshots/text-mode.png) |
+| ![graphs dark](docs/screenshots/graphs-4hour-dark.png) | ![graphs light](docs/screenshots/graphs-4hour-light.png) |
+
+| Text view |
+|---|
+| ![text](docs/screenshots/text-mode.png) |
 
 ## Installation
 
